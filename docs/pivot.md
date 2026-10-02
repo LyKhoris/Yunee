@@ -80,3 +80,7 @@ Only two config values tie it to a provider (`DEEPGRAM_API_KEY`,
   (`Yunee`), seeded from Foxi's pure core. Standalone project (not inside Hermes).
 - **2026-10-02** — Foxi frozen: tag `pre-pivot-saas`, GitHub repo archived.
 - **2026-10-02** — `Yunee` named as the working codename; repo created.
+- **2026-10-02** — Foxi's provider keys revoked: Deepgram API key, Vercel AI Gateway
+  key, Supabase `foxi` publishable key, the Foxi secret key, and the Foxi personal
+  access token. The Supabase project itself is **kept** (data intact); its
+  auto-generated `default` publishable key and legacy JWT keys were left in place.
