@@ -70,8 +70,17 @@ only fixes are the parts of Pro ($25/mo) Yunee would never use.
 complete answer to "no file loss" — the durable safety net is a periodic dump the
 founder owns (see `docs/` if it exists, otherwise a nightly export task).
 
-**Not yet decided:** where the instance runs (the founder's Linux machine, the
-Umbrel home server, or a small VPS), and intake for friends (see Open questions).
+**Not yet decided:** intake for friends (see Open questions); the pipeline itself.
+
+**Live (2026-10-02):** deployed at `https://yunee.vercel.app`.
+- App process: Vercel (Hobby plan — *non-commercial terms; Yunee charges, accepted
+  at this scale, upgrade to Pro if it grows*).
+- Database: Turso Cloud, `libsql://yunee-lykhoris.aws-us-west-2.turso.io`
+  (primary `aws-us-west-2`). Nothing of the founder's is always-on.
+- Env vars in Vercel (production): `SESSION_SECRET`, `APP_URL`,
+  `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`.
+- Commands: `npm run members -- …` for admin; `vercel deploy --prod` to ship;
+  `turso db shell yunee` to inspect.
 
 ## What carries over — the moat is already decoupled
 
@@ -113,14 +122,14 @@ product recording others' lectures, still applies for the founder and friends. S
 ## Open questions
 
 Resolved 2026-10-02: runtime shape, identity/access, storage, and who pays — see
-"Runtime shape and access" above.
+"Runtime shape and access" above. Hosting is resolved too (Vercel + Turso).
 
 Still open:
 
 1. **Intake** — the founder uses Voicenotes (a sync script already exists in
    `.hermes/`). Do friends upload, record in-app, or bring their own app?
-2. **Where the one instance runs** — the founder's Linux machine, the Umbrel home
-   server, or a small VPS.
+2. **Backups** — Turso's 1-day point-in-time restore is not a complete answer to
+   "no file loss"; a periodic dump the founder owns is still owed.
 3. **Payment automation** — manual periods for now; Stripe when the friend count
    makes it worth it.
 4. **Name** — "Yunee" is provisional; repo, package id, and any scheme wait on the
