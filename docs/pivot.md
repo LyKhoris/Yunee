@@ -84,3 +84,8 @@ Only two config values tie it to a provider (`DEEPGRAM_API_KEY`,
   key, Supabase `foxi` publishable key, the Foxi secret key, and the Foxi personal
   access token. The Supabase project itself is **kept** (data intact); its
   auto-generated `default` publishable key and legacy JWT keys were left in place.
+- **2026-10-02** — Runtime shape decided: one small instance the founder operates,
+  web/PWA, invite-only. Access **in-house** (member tokens + `access_expires_at`),
+  not Cloudflare Access. Payment off-system for now (Stripe deferred). Stack:
+  Next.js + TypeScript + SQLite (`node:sqlite`). This resolves open questions 1, 2,
+  4, and 5 above; intake (3) and the name (6) remain open.

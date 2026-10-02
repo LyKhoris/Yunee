@@ -5,9 +5,10 @@ SaaS operating its own cloud, **Yunee is a personal tool for the founder and a f
 friends**, where each person brings their own machine and their own accounts. The
 name is a working codename and is provisional until the founder locks it.
 
-**Status: just created (2026-10-02).** The runtime shape is not decided yet — see
-"Open questions". This file is the authority for building Yunee; update it whenever
-a decision lands. If code or a plan contradicts this file, this file wins.
+**Status: just created (2026-10-02).** The runtime shape and the access model are
+decided — see "Runtime shape and access" below. This file is the authority for
+building Yunee; update it whenever a decision lands. If code or a plan contradicts
+this file, this file wins.
 
 ## Provenance
 
@@ -30,6 +31,35 @@ data model, and the design system. Read it, don't build on it.
 | Who pays | Foxi (subscription) | The user (their own keys / quota) |
 | Identity | Store id, domain, terms/privacy | Private, no public-product identity |
 
+## Runtime shape and access — decided 2026-10-02
+
+Yunee is **one small instance the founder operates**, for himself and a few
+friends. It is a **web app / PWA** (no native app for now), and it is
+**invite-only**.
+
+**Access is in-house.** No third-party identity provider, no Cloudflare Access. A
+member is a row in a table, not a password account:
+
+- No passwords, no email verification, no self-signup, nothing to reset.
+- The founder creates a member; that member's secret **token** becomes an
+  invitation link (`/i/<token>`). Opening it once sets a signed, long-lived session
+  cookie.
+- **Payment is off-system.** A payment buys a *period*, recorded as
+  `access_expires_at`. Not renewing lets access lapse on its own. No payment
+  processor yet — revisit Stripe only when the friend count makes manual renewal
+  annoying.
+- **Revocation** is setting the member inactive (or past expiry), checked
+  server-side on every request, so it is instant and exact.
+- **The founder pays** for transcription and model calls, covered by the fee.
+- **Cloudflare Tunnel / Tailscale** may be added later purely as a *deployment*
+  layer, to expose a home host safely. It is not part of access control.
+
+**Stack (current choice):** Next.js (App Router) + TypeScript, with **SQLite**
+(`node:sqlite`) as the store — one process, one file, no managed cloud.
+
+**Not yet decided:** where the instance runs (the founder's Linux machine, the
+Umbrel home server, or a small VPS), and intake for friends (see Open questions).
+
 ## What carries over — the moat is already decoupled
 
 The transformation core has **no storage dependency** in the old code and moves
@@ -39,7 +69,8 @@ nearly verbatim:
 `model`, plus read-only `canvas`.
 
 Only two provider values tie it to a vendor (`DEEPGRAM_API_KEY`,
-`AI_GATEWAY_API_KEY`) — and those become the **user's** keys.
+`AI_GATEWAY_API_KEY`) — and those become the **operator's** keys (the founder's,
+covered by the fee).
 
 ## Discarded assumptions — do not reintroduce
 
@@ -66,18 +97,20 @@ Only two provider values tie it to a vendor (`DEEPGRAM_API_KEY`,
 product recording others' lectures, still applies for the founder and friends. See
 `docs/pivot.md`.)*
 
-## Open questions — the decisions that shape everything
+## Open questions
 
-1. **Runtime shape** — a per-machine local app / CLI / MCP, or one small shared
-   instance for the founder + friends? *(This decides the architecture.)*
-2. **Storage** — notes as local markdown/JSON, or each user's own cloud bucket?
-3. **Intake** — the user's own recording app (e.g. Voicenotes), in-app recording,
-   upload, or several? What do friends without a sync script do?
-4. **Whose keys, and where** — `.env` file, config file, or OS keychain? Whose
-   transcription / model account pays, and with what guardrails?
-5. **Identity** — is there any sign-in, or does possession of the machine/repo
-   imply the data?
-6. **Name** — "Yunee" is provisional; repo, package id, and any scheme wait on the
+Resolved 2026-10-02: runtime shape, identity/access, storage, and who pays — see
+"Runtime shape and access" above.
+
+Still open:
+
+1. **Intake** — the founder uses Voicenotes (a sync script already exists in
+   `.hermes/`). Do friends upload, record in-app, or bring their own app?
+2. **Where the one instance runs** — the founder's Linux machine, the Umbrel home
+   server, or a small VPS.
+3. **Payment automation** — manual periods for now; Stripe when the friend count
+   makes it worth it.
+4. **Name** — "Yunee" is provisional; repo, package id, and any scheme wait on the
    real name.
 
 ## Working rules

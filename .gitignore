@@ -15,6 +15,12 @@ dist/
 .env.*.local
 !.env.example
 
+# local data (SQLite)
+data/
+*.db
+*.db-journal
+*.db-wal
+
 # logs
 *.log
 npm-debug.log*
