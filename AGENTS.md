@@ -54,8 +54,21 @@ member is a row in a table, not a password account:
 - **Cloudflare Tunnel / Tailscale** may be added later purely as a *deployment*
   layer, to expose a home host safely. It is not part of access control.
 
-**Stack (current choice):** Next.js (App Router) + TypeScript, with **SQLite**
-(`node:sqlite`) as the store — one process, one file, no managed cloud.
+**Stack (current choice):** Next.js (App Router) + TypeScript, with **Turso**
+(libSQL / SQLite) as the store. Development uses a local SQLite file
+(`file:data/yunee.db`); production points the same client at Turso Cloud via
+`TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN`. One SQL dialect, no managed Postgres.
+
+**Why Turso and not Supabase:** Yunee stores no files and needs no auth provider,
+realtime, or RLS — it uses none of the bundle Supabase charges for. Turso's free
+tier is always-on (no inactivity pause), includes 5 GB and 1-day point-in-time
+restore, and keeps SQLite's model. Supabase's free tier pauses after 7 days of
+inactivity and has **no backups**, which fails the "no file loss" requirement; its
+only fixes are the parts of Pro ($25/mo) Yunee would never use.
+
+**Backups are still on the founder.** Turso's 1-day restore window is not a
+complete answer to "no file loss" — the durable safety net is a periodic dump the
+founder owns (see `docs/` if it exists, otherwise a nightly export task).
 
 **Not yet decided:** where the instance runs (the founder's Linux machine, the
 Umbrel home server, or a small VPS), and intake for friends (see Open questions).

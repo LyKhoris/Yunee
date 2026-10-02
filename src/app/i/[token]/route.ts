@@ -7,7 +7,7 @@ export async function GET(
   { params }: { params: Promise<{ token: string }> },
 ): Promise<NextResponse> {
   const { token } = await params;
-  const member = getMemberByToken(token);
+  const member = await getMemberByToken(token);
   if (!member) {
     return new NextResponse("This invitation link is not valid.", { status: 404 });
   }

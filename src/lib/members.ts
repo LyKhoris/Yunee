@@ -1,4 +1,4 @@
-import { getDb } from "./db";
+import { execute, query } from "./db";
 import { newToken } from "./session";
 
 export type Member = {
@@ -14,57 +14,62 @@ export type Member = {
 
 const DAY_MS = 86_400_000;
 
-export function createMember(input: {
+function rowToMember(row: Record<string, unknown> | undefined): Member | null {
+  return row ? (row as unknown as Member) : null;
+}
+
+export async function createMember(input: {
   name: string;
   email?: string | null;
   days?: number | null;
   note?: string | null;
-}): Member {
+}): Promise<Member> {
   const now = new Date();
   const days = input.days ?? null;
   const expires = days && days > 0 ? new Date(now.getTime() + days * DAY_MS).toISOString() : null;
-  const info = getDb()
-    .prepare(
-      `INSERT INTO members (name, email, token, created_at, access_expires_at, active, note)
-       VALUES (?, ?, ?, ?, ?, 1, ?)`,
-    )
-    .run(input.name, input.email ?? null, newToken(), now.toISOString(), expires, input.note ?? null);
-  return getMemberById(Number(info.lastInsertRowid))!;
+  const { lastInsertRowid } = await execute(
+    `INSERT INTO members (name, email, token, created_at, access_expires_at, active, note)
+     VALUES (?, ?, ?, ?, ?, 1, ?)`,
+    [input.name, input.email ?? null, newToken(), now.toISOString(), expires, input.note ?? null],
+  );
+  const created = await getMemberById(lastInsertRowid);
+  return created!;
 }
 
-export function getMemberById(id: number): Member | null {
-  const row = getDb().prepare("SELECT * FROM members WHERE id = ?").get(id);
-  return (row as unknown as Member | undefined) ?? null;
+export async function getMemberById(id: number): Promise<Member | null> {
+  const rows = await query("SELECT * FROM members WHERE id = ?", [id]);
+  return rowToMember(rows[0]);
 }
 
-export function getMemberByToken(token: string): Member | null {
-  const row = getDb().prepare("SELECT * FROM members WHERE token = ?").get(token);
-  return (row as unknown as Member | undefined) ?? null;
+export async function getMemberByToken(token: string): Promise<Member | null> {
+  const rows = await query("SELECT * FROM members WHERE token = ?", [token]);
+  return rowToMember(rows[0]);
 }
 
-export function listMembers(): Member[] {
-  return getDb().prepare("SELECT * FROM members ORDER BY id").all() as unknown as Member[];
+export async function listMembers(): Promise<Member[]> {
+  const rows = await query("SELECT * FROM members ORDER BY id");
+  return rows as unknown as Member[];
 }
 
-export function setActive(id: number, active: boolean): void {
-  getDb().prepare("UPDATE members SET active = ? WHERE id = ?").run(active ? 1 : 0, id);
+export async function setActive(id: number, active: boolean): Promise<void> {
+  await query("UPDATE members SET active = ? WHERE id = ?", [active ? 1 : 0, id]);
 }
 
 /** Extend from the later of now and the current expiry, and re-enable. */
-export function extendMember(id: number, days: number): Member | null {
-  const member = getMemberById(id);
+export async function extendMember(id: number, days: number): Promise<Member | null> {
+  const member = await getMemberById(id);
   if (!member) return null;
   const current = member.access_expires_at ? new Date(member.access_expires_at).getTime() : 0;
   const base = Math.max(current, Date.now());
   const next = new Date(base + days * DAY_MS).toISOString();
-  getDb().prepare("UPDATE members SET access_expires_at = ?, active = 1 WHERE id = ?").run(next, id);
+  await query("UPDATE members SET access_expires_at = ?, active = 1 WHERE id = ?", [next, id]);
   return getMemberById(id);
 }
 
-export function deleteMember(id: number): void {
-  getDb().prepare("DELETE FROM members WHERE id = ?").run(id);
+export async function deleteMember(id: number): Promise<void> {
+  await query("DELETE FROM members WHERE id = ?", [id]);
 }
 
-export function findMember(idOrToken: string): Member | null {
+export async function findMember(idOrToken: string): Promise<Member | null> {
   return /^\d+$/.test(idOrToken) ? getMemberById(Number(idOrToken)) : getMemberByToken(idOrToken);
 }

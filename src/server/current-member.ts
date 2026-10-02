@@ -9,7 +9,7 @@ import { getSessionMemberId } from "./session";
 export async function currentMember(): Promise<{ member: Member; status: AccessStatus } | null> {
   const id = await getSessionMemberId();
   if (id == null) return null;
-  const member = getMemberById(id);
+  const member = await getMemberById(id);
   if (!member) return null;
   return { member, status: evaluateAccess(member) };
 }

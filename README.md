@@ -17,6 +17,15 @@ npm install
 npm run dev                  # http://localhost:3000
 ```
 
+Development uses a local SQLite file at `data/yunee.db` — no Turso account needed.
+To use Turso Cloud, set `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in
+`.env.local`:
+
+```bash
+turso db show --url yunee        # -> TURSO_DATABASE_URL
+turso db tokens create yunee     # -> TURSO_AUTH_TOKEN
+```
+
 ## Invite a friend
 
 Access is invite-only and in-house — there are no passwords. You create a member
