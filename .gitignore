@@ -15,8 +15,9 @@ dist/
 .env.*.local
 !.env.example
 
-# local data (SQLite)
+# local data (SQLite) and its dumps
 data/
+backups/
 *.db
 *.db-journal
 *.db-wal
@@ -32,3 +33,5 @@ npm-debug.log*
 
 # typescript
 *.tsbuildinfo
+.vercel
+.env*
