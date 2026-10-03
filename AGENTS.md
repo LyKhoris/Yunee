@@ -38,12 +38,21 @@ friends. It is a **web app / PWA** (no native app for now), and it is
 **invite-only**.
 
 **Access is in-house.** No third-party identity provider, no Cloudflare Access. A
-member is a row in a table, not a password account:
+member is a row in a table, with a username and a password:
 
-- No passwords, no email verification, no self-signup, nothing to reset.
-- The founder creates a member; that member's secret **token** becomes an
-  invitation link (`/i/<token>`). Opening it once sets a signed, long-lived session
-  cookie.
+- The founder creates a member with a **username**
+  (`npm run members -- add Ada --username ada`); a secret **invite token** becomes a
+  one-time link (`/i/<token>`).
+- Opening the invite link once lets the member **choose a password**; the link is
+  then spent. From any device afterwards they sign in at `/login` with
+  username + password.
+- No email, no email verification, no self-signup. **Password resets are manual**:
+  the founder runs `npm run members -- reset <id>` to print a fresh one-time link
+  (and clear the old password). Nothing to reset by email because nothing sends
+  email.
+- Sessions are signed, expiring cookies. Each carries the member's `session_epoch`,
+  and a **revoke or reset bumps that epoch**, so devices already signed in are cut
+  off at once.
 - **Payment is off-system.** A payment buys a *period*, recorded as
   `access_expires_at`. Not renewing lets access lapse on its own. No payment
   processor yet — revisit Stripe only when the friend count makes manual renewal
@@ -143,3 +152,13 @@ Still open:
 - **Write the decision down before building it.** Decisions go in this file or
   `docs/`, then become code.
 - **Verify in the browser** for any user-facing surface, using BrowserOS.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

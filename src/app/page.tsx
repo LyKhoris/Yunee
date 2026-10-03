@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { signOut } from "@/server/actions";
 import { currentMember } from "@/server/current-member";
 
@@ -17,6 +18,9 @@ export default async function Home() {
       <main style={shell}>
         <h1>Yunee</h1>
         <p>This is a private space. You need an invitation link to get in.</p>
+        <p>
+          Already have an account? <Link href="/login">Sign in</Link>.
+        </p>
       </main>
     );
   }
@@ -31,6 +35,9 @@ export default async function Home() {
             ? "Your access period has ended. Renew to continue."
             : "Your access has been turned off."}
         </p>
+        <form action={signOut}>
+          <button type="submit">Sign out</button>
+        </form>
       </main>
     );
   }

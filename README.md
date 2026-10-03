@@ -47,20 +47,26 @@ file, so `npm run dev` needs no credentials.
 
 ## Invite a friend
 
-Access is invite-only and in-house — there are no passwords. You create a member
-and send them the invite link.
+Access is invite-only and in-house — no third party, no email. You create a member
+with a username; the invite link they receive is a **one-time** link that lets them
+set a password. After that they sign in at `/login` from any device.
 
 ```bash
-npm run members -- add Ada --email ada@example.com --days 120  # create + print invite link
-npm run members -- list                                        # status + expiry
-npm run members -- extend 1 --days 120                         # add a paid period
-npm run members -- revoke 1                                    # cut access off now
-npm run members -- enable 1                                    # turn access back on
-npm run members -- rm 1                                        # delete a member
+npm run members -- add Ada --username ada --email ada@example.com --days 120  # create + print invite link
+npm run members -- list                                                       # status + expiry
+npm run members -- invite 1                                                   # reprint the invite link (only works before it's used)
+npm run members -- reset 1                                                    # new one-time link; clears the password, signs them out
+npm run members -- extend 1 --days 120                                        # add a paid period
+npm run members -- revoke 1                                                   # cut access off now (signs them out everywhere)
+npm run members -- enable 1                                                   # turn access back on
+npm run members -- rm 1                                                       # delete a member
 ```
 
 A payment buys a *period* (`access_expires_at`); simply not renewing lets access
 lapse. `revoke` is for an immediate cutoff. Payment itself is off-system for now.
+
+**Forgot a password?** There is no self-service reset — nothing sends email. Run
+`npm run members -- reset <id>` and send the new one-time link.
 
 ## Checks
 

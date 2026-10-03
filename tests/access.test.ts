@@ -19,16 +19,16 @@ check("newToken is random and long", () => {
   assert.ok(a.length >= 40, "token should be at least 40 chars");
 });
 
-check("session round-trips", () => {
-  assert.equal(verify(issue(7)), 7);
-  assert.equal(verify(issue(1234)), 1234);
+check("session round-trips with its epoch", () => {
+  assert.deepEqual(verify(issue(7, 1)), { id: 7, epoch: 1 });
+  assert.deepEqual(verify(issue(1234, 9)), { id: 1234, epoch: 9 });
 });
 
 check("tampered or malformed sessions are rejected", () => {
-  const good = issue(7);
+  const good = issue(7, 1);
   const flipped = good.slice(0, -1) + (good.endsWith("A") ? "B" : "A");
   assert.equal(verify(flipped), null);
-  assert.equal(verify("7.123.deadbeef"), null);
+  assert.equal(verify("7.1.123.deadbeef"), null);
   assert.equal(verify("garbage"), null);
   assert.equal(verify(""), null);
   assert.equal(verify(undefined), null);

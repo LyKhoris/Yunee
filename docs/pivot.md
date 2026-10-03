@@ -89,3 +89,13 @@ Only two config values tie it to a provider (`DEEPGRAM_API_KEY`,
   not Cloudflare Access. Payment off-system for now (Stripe deferred). Stack:
   Next.js + TypeScript + SQLite (`node:sqlite`). This resolves open questions 1, 2,
   4, and 5 above; intake (3) and the name (6) remain open.
+- **2026-10-02** — **Accounts replace bearer invite links.** The invite link is now
+  a *one-time* bootstrap: opening `/i/<token>` lets the member choose a password,
+  then the link is spent. Sign-in afterwards is username + password at `/login`, so
+  a member can use any device without asking for a new link. Usernames (lowercased,
+  founder-assigned) were chosen over email because nothing here sends email, and
+  email would imply resets/verification Yunee does not have. Resets are manual
+  (`npm run members -- reset <id>`). This supersedes the earlier "no passwords"
+  stance in `AGENTS.md`; sessions now carry a `session_epoch` so a revoke or reset
+  signs every device out. Revisits open question 5 (identity); intake (3) and the
+  name (6) remain open.

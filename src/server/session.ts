@@ -1,11 +1,11 @@
 import { cookies } from "next/headers";
-import { COOKIE_NAME, issue, verify } from "@/lib/session";
+import { COOKIE_NAME, issue, verify, type Session } from "@/lib/session";
 
 const ONE_YEAR = 60 * 60 * 24 * 365;
 
-export async function setSession(memberId: number): Promise<void> {
+export async function setSession(memberId: number, epoch: number): Promise<void> {
   const jar = await cookies();
-  jar.set(COOKIE_NAME, issue(memberId), {
+  jar.set(COOKIE_NAME, issue(memberId, epoch), {
     httpOnly: true,
     sameSite: "lax",
     // Only force Secure when the request actually came over HTTPS. A production
@@ -17,7 +17,7 @@ export async function setSession(memberId: number): Promise<void> {
   });
 }
 
-export async function getSessionMemberId(): Promise<number | null> {
+export async function getSession(): Promise<Session | null> {
   const jar = await cookies();
   return verify(jar.get(COOKIE_NAME)?.value);
 }

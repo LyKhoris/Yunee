@@ -9,6 +9,7 @@ import {
   extendMember,
   findMember,
   listMembers,
+  resetInvite,
   setActive,
   type Member,
 } from "../src/lib/members";
@@ -42,7 +43,8 @@ function fail(message: string): never {
 function line(member: Member): string {
   const status = evaluateAccess(member);
   const expires = member.access_expires_at ? member.access_expires_at.slice(0, 10) : "never";
-  return `${String(member.id).padStart(3)}  ${member.name.padEnd(18)}  ${status.padEnd(7)}  ${expires}`;
+  const username = member.username ?? "—";
+  return `${String(member.id).padStart(3)}  ${member.name.padEnd(16)}  ${username.padEnd(12)}  ${status.padEnd(7)}  ${expires}`;
 }
 
 async function main(): Promise<void> {
@@ -52,16 +54,20 @@ async function main(): Promise<void> {
   switch (command) {
     case "add": {
       const name = rest[0];
-      if (!name) fail("usage: npm run members -- add <name> [--email x] [--days 30] [--note '...']");
+      const username = flags.username;
+      if (!name) fail("usage: npm run members -- add <name> --username <name> [--email x] [--days 30] [--note '...']");
+      if (!username) fail("A --username is required — it's what the member signs in with.");
       const member = await createMember({
         name,
+        username,
         email: flags.email,
         days: flags.days ? Number(flags.days) : undefined,
         note: flags.note,
       });
-      console.log(`Created member #${member.id} — ${member.name}`);
+      console.log(`Created member #${member.id} — ${member.name} (${member.username})`);
       console.log(`Invite: ${invite(member.token)}`);
       if (member.access_expires_at) console.log(`Access until: ${member.access_expires_at.slice(0, 10)}`);
+      console.log("Send them the invite link — it works once, and sets their password.");
       break;
     }
     case "list": {
@@ -70,17 +76,24 @@ async function main(): Promise<void> {
         console.log("No members yet.");
         break;
       }
-      console.log("id   name                status   expires");
+      console.log("id   name              username      status   expires");
       for (const member of all) console.log(line(member));
       break;
     }
     case "invite":
       console.log(invite((await requireMember(rest[0])).token));
       break;
+    case "reset": {
+      const member = await requireMember(rest[0]);
+      const updated = await resetInvite(member.id);
+      console.log(`Fresh invite for ${updated!.name} (${updated!.username}) — their old password no longer works:`);
+      console.log(`Invite: ${invite(updated!.token)}`);
+      break;
+    }
     case "revoke": {
       const member = await requireMember(rest[0]);
       await setActive(member.id, false);
-      console.log(`Revoked ${member.name}.`);
+      console.log(`Revoked ${member.name}. They are signed out everywhere.`);
       break;
     }
     case "enable": {
@@ -107,15 +120,16 @@ async function main(): Promise<void> {
         [
           "Yunee — members admin",
           "",
-          "  add <name> [--email x] [--days N] [--note '...']   create a member + invite link",
+          "  add <name> --username <name> [--email x] [--days N] [--note '...']   create a member + invite link",
           "  list                                                show members and status",
           "  invite <id|token>                                   print a member's invite link",
-          "  revoke <id|token>                                   turn access off",
+          "  reset <id|token>                                    new one-time link, clears the password",
+          "  revoke <id|token>                                   turn access off (signs them out)",
           "  enable <id|token>                                   turn access back on",
           "  extend <id|token> [--days N]                        add days (default 30)",
           "  rm <id|token>                                       delete a member",
           "",
-          "Example: npm run members -- add Ada --email ada@example.com --days 120",
+          "Example: npm run members -- add Ada --username ada --email ada@example.com --days 120",
         ].join("\n"),
       );
   }

@@ -14,13 +14,32 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS members (
      id                INTEGER PRIMARY KEY AUTOINCREMENT,
      name              TEXT NOT NULL,
+     username          TEXT,
      email             TEXT,
      token             TEXT NOT NULL UNIQUE,
+     password_hash     TEXT,
      created_at        TEXT NOT NULL,
      access_expires_at TEXT,
      active            INTEGER NOT NULL DEFAULT 1,
+     invite_used_at    TEXT,
+     session_epoch     INTEGER NOT NULL DEFAULT 1,
      note              TEXT
    )`,
+];
+
+/**
+ * Columns added after the first deploy. `CREATE TABLE IF NOT EXISTS` is a no-op
+ * on an existing database, so older tables are brought forward by adding the
+ * missing columns one at a time. Nothing here drops or rewrites data.
+ */
+const ADDED_COLUMNS: { name: string; ddl: string }[] = [
+  { name: "username", ddl: "ALTER TABLE members ADD COLUMN username TEXT" },
+  { name: "password_hash", ddl: "ALTER TABLE members ADD COLUMN password_hash TEXT" },
+  { name: "invite_used_at", ddl: "ALTER TABLE members ADD COLUMN invite_used_at TEXT" },
+  {
+    name: "session_epoch",
+    ddl: "ALTER TABLE members ADD COLUMN session_epoch INTEGER NOT NULL DEFAULT 1",
+  },
 ];
 
 /** The subset of the client API this app uses — both drivers satisfy it. */
@@ -60,6 +79,16 @@ async function openClient(): Promise<Db> {
 async function init(): Promise<void> {
   const db = await openClient();
   for (const statement of SCHEMA) await db.execute({ sql: statement });
+
+  // Bring an older `members` table forward, then add the unique index. The index
+  // must come after the column exists, so it isn't part of SCHEMA.
+  const info = await db.execute({ sql: "PRAGMA table_info(members)" });
+  const existing = new Set((info.rows as { name: string }[]).map((row) => row.name));
+  for (const column of ADDED_COLUMNS) {
+    if (!existing.has(column.name)) await db.execute({ sql: column.ddl });
+  }
+  await db.execute({ sql: "CREATE UNIQUE INDEX IF NOT EXISTS members_username ON members (username)" });
+
   client = db;
 }
 
