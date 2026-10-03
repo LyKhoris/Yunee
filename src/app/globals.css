@@ -5,8 +5,8 @@
 
    Ported from Foxi's "warm dark" system (Foxi is archived; see AGENTS.md).
    Decision record lives there: a charcoal-ink canvas rather than a blue-black,
-   a honey accent drawn from the fox, a warm ink ladder, and status hues carved
-   to stay clear of the accent (green = good, orange = warning, red = danger).
+   a honey accent, a warm ink ladder, and status hues carved to stay clear of
+   the accent (green = good, orange = warning, red = danger).
 
    Every ink/surface pair is contrast-checked; ratios are noted beside each value.
    Tokens are the *only* place colour is decided — change them here, not in
@@ -31,7 +31,7 @@
   --yunee-ink-subtle: #8a8072; /* 4.6:1 — large text / labels only */
   --yunee-ink-faint: #5f584e; /* non-text only */
 
-  /* the accent: honey, drawn from the fox. 9.7:1 on surface-1 */
+  /* the accent: honey. 9.7:1 on surface-1 */
   --yunee-accent: #e9b865;
   --yunee-accent-strong: #f3ca80;
   --yunee-accent-pressed: #cf9c46;

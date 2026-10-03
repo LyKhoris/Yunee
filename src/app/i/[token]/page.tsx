@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { getMemberByToken } from "@/lib/members";
-import { FoxMark } from "../../fox-mark";
 import { InviteForm } from "./invite-form";
 
 export default async function InvitePage({ params }: { params: Promise<{ token: string }> }) {
@@ -10,9 +9,8 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-16">
-      <Link href="/" className="flex flex-col items-center gap-2 pressable">
-        <FoxMark className="h-8 w-8 text-accent" title="Yunee" />
-        <span className="font-display text-2xl font-semibold tracking-tight">Yunee</span>
+      <Link href="/" className="flex flex-col items-center gap-1 pressable">
+        <span className="font-display text-3xl font-semibold tracking-tight">Yunee</span>
       </Link>
 
       <div className="card fx-rise w-full max-w-sm p-6">

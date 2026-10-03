@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentMember } from "@/server/current-member";
-import { FoxMark } from "../fox-mark";
 import { LoginForm } from "./login-form";
 
 export default async function LoginPage() {
@@ -10,9 +9,8 @@ export default async function LoginPage() {
 
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-16">
-      <Link href="/" className="flex flex-col items-center gap-2 pressable">
-        <FoxMark className="h-8 w-8 text-accent" title="Yunee" />
-        <span className="font-display text-2xl font-semibold tracking-tight">Yunee</span>
+      <Link href="/" className="flex flex-col items-center gap-1 pressable">
+        <span className="font-display text-3xl font-semibold tracking-tight">Yunee</span>
       </Link>
 
       <p className="max-w-xs text-center text-sm text-ink-muted">
