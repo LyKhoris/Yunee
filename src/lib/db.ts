@@ -57,6 +57,11 @@ function isRemote(url: string | undefined): url is string {
   return !!url && (url.startsWith("libsql") || url.startsWith("http"));
 }
 
+/** True when this code is running on a serverless host rather than locally. */
+function isDeployed(): boolean {
+  return !!process.env.VERCEL || process.env.NODE_ENV === "production";
+}
+
 async function openClient(): Promise<Db> {
   const configured = process.env.TURSO_DATABASE_URL;
   const authToken = process.env.TURSO_AUTH_TOKEN;
@@ -64,6 +69,19 @@ async function openClient(): Promise<Db> {
   if (isRemote(configured)) {
     const { createClient } = await import("@tursodatabase/serverless/compat");
     return createClient(authToken ? { url: configured, authToken } : { url: configured }) as unknown as Db;
+  }
+
+  // Fail loudly when a deployment is misconfigured. Without this, a missing or
+  // malformed TURSO_DATABASE_URL makes a serverless function silently fall
+  // through to the file branch, where it opens an ephemeral file that discards
+  // every write — the app looks healthy while every member and invite vanishes.
+  // A local file is right in development and wrong in production; say which.
+  if (isDeployed()) {
+    throw new Error(
+      `TURSO_DATABASE_URL is missing or not remote (received ${JSON.stringify(configured)}). ` +
+        `Production must point at Turso Cloud — set TURSO_DATABASE_URL (libsql://… or https://…) ` +
+        `and TURSO_AUTH_TOKEN, then redeploy.`,
+    );
   }
 
   // Local development: a real SQLite file. Requires the filesystem, so this
