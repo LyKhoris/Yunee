@@ -24,6 +24,7 @@ const SCHEMA = [
      active            INTEGER NOT NULL DEFAULT 1,
      invite_used_at    TEXT,
      session_epoch     INTEGER NOT NULL DEFAULT 1,
+     is_admin          INTEGER NOT NULL DEFAULT 0,
      note              TEXT
    )`,
 ];
@@ -40,6 +41,10 @@ const ADDED_COLUMNS: { name: string; ddl: string }[] = [
   {
     name: "session_epoch",
     ddl: "ALTER TABLE members ADD COLUMN session_epoch INTEGER NOT NULL DEFAULT 1",
+  },
+  {
+    name: "is_admin",
+    ddl: "ALTER TABLE members ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0",
   },
 ];
 

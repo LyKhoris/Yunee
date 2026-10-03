@@ -99,3 +99,15 @@ Only two config values tie it to a provider (`DEEPGRAM_API_KEY`,
   stance in `AGENTS.md`; sessions now carry a `session_epoch` so a revoke or reset
   signs every device out. Revisits open question 5 (identity); intake (3) and the
   name (6) remain open.
+- **2026-10-02** — **Roles: admin vs member, and member management moves to the web.**
+  `members.is_admin` is a plain flag (like `active`); the founder is the admin and
+  friends are members. Everything the CLI could do — invite, extend, revoke, enable,
+  promote, reset, delete — now lives at `/admin` in the browser, so the founder does
+  not need a terminal outside of bootstrapping. The CLI keeps only the one-time
+  bootstrap (`promote`) and remains for emergencies. Chosen as a boolean rather than
+  a roles table because the role set is exactly two and stable, and because the row
+  already carries `active` in the same shape. The last admin can never be revoked,
+  demoted, or deleted (enforced in both the UI and the data layer) — otherwise one
+  click could lock the operator out permanently. Admin pages and actions re-check
+  admin server-side from the row on every request, so a demotion takes effect
+  immediately, exactly like revocation.

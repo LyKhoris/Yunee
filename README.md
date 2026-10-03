@@ -45,28 +45,36 @@ file, so `npm run dev` needs no credentials.
 > is a known, accepted risk at the current scale — moving to Pro (or Cloudflare)
 > is the fix if it ever grows.
 
-## Invite a friend
+## Invite and manage members
 
-Access is invite-only and in-house — no third party, no email. You create a member
-with a username; the invite link they receive is a **one-time** link that lets them
-set a password. After that they sign in at `/login` from any device.
+Access is invite-only and in-house — no third party, no email. **This is done in the
+web app now**, not the terminal. Sign in as an admin and open **Manage members**.
+
+From `/admin` you can invite someone (name + username, optional email and access
+period), and for each member: extend by 30 days, revoke or enable, promote or
+demote, issue a reset link, or delete.
+
+The invite link is a **one-time** link that lets them set a password; after that
+they sign in at `/login` from any device. Resets are manual by design: there is
+nothing to send email with, so "forgot password" means opening their row and
+clicking **Reset link**.
+
+### CLI (bootstrap only)
+
+The CLI exists for the very first setup — it is how you become an admin at all — and
+as an escape hatch if the web UI is ever unreachable. It prints the database it is
+about to touch before every command.
 
 ```bash
-npm run members -- add Ada --username ada --email ada@example.com --days 120  # create + print invite link
-npm run members -- list                                                       # status + expiry
-npm run members -- invite 1                                                   # reprint the invite link (only works before it's used)
-npm run members -- reset 1                                                    # new one-time link; clears the password, signs them out
-npm run members -- extend 1 --days 120                                        # add a paid period
-npm run members -- revoke 1                                                   # cut access off now (signs them out everywhere)
-npm run members -- enable 1                                                   # turn access back on
-npm run members -- rm 1                                                       # delete a member
+npm run members -- add Ryan --username ryan --admin        # create the first admin
+npm run members -- promote 1                               # or promote an existing member
+npm run members -- list                                    # id, name, username, role, status
+npm run members -- reset 1                                 # (emergency) fresh one-time link
+npm run members -- revoke 1                                # (emergency) cut access off
 ```
 
 A payment buys a *period* (`access_expires_at`); simply not renewing lets access
-lapse. `revoke` is for an immediate cutoff. Payment itself is off-system for now.
-
-**Forgot a password?** There is no self-service reset — nothing sends email. Run
-`npm run members -- reset <id>` and send the new one-time link.
+lapse. Payment itself is off-system for now.
 
 ## Checks
 

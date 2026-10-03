@@ -48,7 +48,12 @@ export default async function Home() {
           <p className="mt-2 text-sm text-ink-muted">
             Nothing here yet — the lecture pipeline comes next.
           </p>
-          <form action={signOut} className="mt-5">
+          {access.member.is_admin ? (
+            <Link href="/admin" className="btn btn-primary mt-5 w-full justify-center py-2.5">
+              Manage members
+            </Link>
+          ) : null}
+          <form action={signOut} className="mt-2">
             <button type="submit" className="btn btn-ghost w-full justify-center py-2.5">
               Sign out
             </button>

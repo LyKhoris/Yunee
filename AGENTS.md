@@ -53,6 +53,18 @@ member is a row in a table, with a username and a password:
 - Sessions are signed, expiring cookies. Each carries the member's `session_epoch`,
   and a **revoke or reset bumps that epoch**, so devices already signed in are cut
   off at once.
+- **Two roles: admin and member.** `is_admin` is a plain flag on the row. The
+  founder is the admin; friends are members. Admin surfaces live under `/admin` and
+  are gated **server-side** on every page and every action — a demoted admin loses
+  them on the next request, the same instant re-check that makes revocation exact.
+- **Member management is a web UI, not a CLI.** `/admin` lists the roster and does
+  everything: invite someone, extend a period, revoke/enable, promote/demote,
+  reset a link, delete. The CLI is only for the **one-time bootstrap** — promoting
+  the very first admin (`npm run members -- promote <id>`) — and for changes the UI
+  cannot reach. Nothing else should require a terminal.
+- **The last admin is protected.** Revoking, demoting, or deleting the only admin
+  is refused (in the UI and the CLI alike) rather than allowed quietly; otherwise a
+  single click could lock the operator out with no way back in.
 - **Payment is off-system.** A payment buys a *period*, recorded as
   `access_expires_at`. Not renewing lets access lapse on its own. No payment
   processor yet — revisit Stripe only when the friend count makes manual renewal
