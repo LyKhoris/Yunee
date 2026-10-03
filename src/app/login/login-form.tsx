@@ -1,33 +1,41 @@
 "use client";
 
-import { useActionState, type CSSProperties } from "react";
+import { useActionState } from "react";
 import { signIn, type FormState } from "@/server/account";
 
 export function LoginForm() {
   const [state, action, pending] = useActionState<FormState, FormData>(signIn, {});
+
   return (
-    <form action={action} style={form}>
-      <label style={label}>
-        Username
-        <input name="username" autoComplete="username" required style={input} />
+    <form action={action} className="flex flex-col gap-3">
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="font-medium text-ink-muted">Username</span>
+        <input
+          name="username"
+          autoComplete="username"
+          required
+          placeholder="your username"
+          className="field"
+        />
       </label>
-      <label style={label}>
-        Password
-        <input type="password" name="password" autoComplete="current-password" required style={input} />
+
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="font-medium text-ink-muted">Password</span>
+        <input
+          type="password"
+          name="password"
+          autoComplete="current-password"
+          required
+          placeholder="Your password"
+          className="field"
+        />
       </label>
-      {state.error ? (
-        <p role="alert" style={error}>
-          {state.error}
-        </p>
-      ) : null}
-      <button type="submit" disabled={pending}>
-        {pending ? "Signing in…" : "Sign in"}
+
+      {state.error ? <p className="field-error">{state.error}</p> : null}
+
+      <button type="submit" disabled={pending} className="btn btn-primary mt-1 py-2.5">
+        {pending ? "One moment…" : "Sign in"}
       </button>
     </form>
   );
 }
-
-const form: CSSProperties = { display: "grid", gap: "0.75rem", maxWidth: 320 };
-const label: CSSProperties = { display: "grid", gap: "0.25rem" };
-const input: CSSProperties = { padding: "0.5rem", font: "inherit" };
-const error: CSSProperties = { color: "#b00020", margin: 0 };

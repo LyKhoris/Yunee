@@ -1,26 +1,30 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { currentMember } from "@/server/current-member";
+import { FoxMark } from "../fox-mark";
 import { LoginForm } from "./login-form";
-
-const shell: React.CSSProperties = {
-  maxWidth: 560,
-  margin: "4rem auto",
-  padding: "0 1rem",
-  fontFamily: "system-ui, sans-serif",
-  lineHeight: 1.5,
-};
 
 export default async function LoginPage() {
   const access = await currentMember();
   if (access?.status === "ok") redirect("/");
 
   return (
-    <main style={shell}>
-      <h1>Sign in</h1>
-      <p>Use the username and password you set from your invitation.</p>
-      <LoginForm />
-      <p style={{ marginTop: "1.5rem", color: "#555" }}>
-        No account yet? You need an invitation link from the person who runs Yunee.
+    <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6 py-16">
+      <Link href="/" className="flex flex-col items-center gap-2 pressable">
+        <FoxMark className="h-8 w-8 text-accent" title="Yunee" />
+        <span className="font-display text-2xl font-semibold tracking-tight">Yunee</span>
+      </Link>
+
+      <p className="max-w-xs text-center text-sm text-ink-muted">
+        Your lectures, remembered. Sign in to pick up where you left off.
+      </p>
+
+      <div className="card fx-rise w-full max-w-sm p-6">
+        <LoginForm />
+      </div>
+
+      <p className="max-w-xs text-center text-xs text-ink-subtle">
+        No account yet? You need an invitation link from whoever runs Yunee.
       </p>
     </main>
   );

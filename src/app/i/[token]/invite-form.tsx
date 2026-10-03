@@ -1,53 +1,51 @@
 "use client";
 
-import { useActionState, type CSSProperties } from "react";
+import { useActionState } from "react";
 import { redeemInviteAction, type FormState } from "@/server/account";
 
 export function InviteForm({ token, username }: { token: string; username: string | null }) {
   const [state, action, pending] = useActionState<FormState, FormData>(redeemInviteAction, {});
+
   return (
-    <form action={action} style={form}>
+    <form action={action} className="flex flex-col gap-3">
       <input type="hidden" name="token" value={token} />
       {username ? (
-        <p style={{ margin: 0 }}>
-          Username: <strong>{username}</strong>
+        <p className="text-sm text-ink-muted">
+          Username: <strong className="font-semibold text-ink">{username}</strong>
         </p>
       ) : null}
-      <label style={label}>
-        Choose a password
+
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="font-medium text-ink-muted">Choose a password</span>
         <input
           type="password"
           name="password"
           autoComplete="new-password"
           minLength={8}
           required
-          style={input}
+          placeholder="At least 8 characters"
+          className="field"
         />
       </label>
-      <label style={label}>
-        Repeat it
+
+      <label className="flex flex-col gap-1 text-sm">
+        <span className="font-medium text-ink-muted">Repeat it</span>
         <input
           type="password"
           name="confirm"
           autoComplete="new-password"
           minLength={8}
           required
-          style={input}
+          placeholder="Same password"
+          className="field"
         />
       </label>
-      {state.error ? (
-        <p role="alert" style={error}>
-          {state.error}
-        </p>
-      ) : null}
-      <button type="submit" disabled={pending}>
+
+      {state.error ? <p className="field-error">{state.error}</p> : null}
+
+      <button type="submit" disabled={pending} className="btn btn-primary mt-1 py-2.5">
         {pending ? "Saving…" : "Set password and continue"}
       </button>
     </form>
   );
 }
-
-const form: CSSProperties = { display: "grid", gap: "0.75rem", maxWidth: 320 };
-const label: CSSProperties = { display: "grid", gap: "0.25rem" };
-const input: CSSProperties = { padding: "0.5rem", font: "inherit" };
-const error: CSSProperties = { color: "#b00020", margin: 0 };
