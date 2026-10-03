@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 if (existsSync(".env.local")) process.loadEnvFile(".env.local");
 
 import { evaluateAccess } from "../src/lib/access";
+import { targetLine } from "../src/lib/db";
 import {
   createMember,
   deleteMember,
@@ -40,6 +41,16 @@ function fail(message: string): never {
   process.exit(1);
 }
 
+/**
+ * Say which database every command is about to touch. There are two homes —
+ * a local file and Turso Cloud — and it is easy to create a member in one while
+ * the app reads the other. Printing this is cheap; discovering the split by
+ * wondering why a fresh invite is "not valid" is not.
+ */
+function target(): string {
+  return targetLine();
+}
+
 function line(member: Member): string {
   const status = evaluateAccess(member);
   const expires = member.access_expires_at ? member.access_expires_at.slice(0, 10) : "never";
@@ -50,6 +61,9 @@ function line(member: Member): string {
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
   const { flags, rest } = parseFlags(args);
+
+  // Help is the one command that touches nothing, so it alone stays quiet.
+  if (command && command !== "help" && !flags.help) console.log(target());
 
   switch (command) {
     case "add": {
@@ -128,6 +142,8 @@ async function main(): Promise<void> {
           "  enable <id|token>                                   turn access back on",
           "  extend <id|token> [--days N]                        add days (default 30)",
           "  rm <id|token>                                       delete a member",
+          "",
+          "Every command prints the database it is about to touch.",
           "",
           "Example: npm run members -- add Ada --username ada --email ada@example.com --days 120",
         ].join("\n"),

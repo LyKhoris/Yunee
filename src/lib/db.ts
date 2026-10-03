@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { InArgs } from "@tursodatabase/serverless/compat";
 
 /**
@@ -49,6 +50,34 @@ export type Db = {
     lastInsertRowid?: number | bigint;
   }>;
 };
+
+export type DatabaseTarget =
+  | { kind: "remote"; host: string }
+  | { kind: "file"; path: string };
+
+/**
+ * Where reads and writes will actually go. Both the CLI and the app ask this so
+ * there is one answer, not two that can drift.
+ */
+export function describeTarget(): DatabaseTarget {
+  const configured = process.env.TURSO_DATABASE_URL;
+  if (isRemote(configured)) {
+    try {
+      return { kind: "remote", host: new URL(configured).host };
+    } catch {
+      return { kind: "remote", host: configured };
+    }
+  }
+  return { kind: "file", path: join(process.cwd(), "data", "yunee.db") };
+}
+
+/** A one-line, human-readable form of `describeTarget` for CLI output. */
+export function targetLine(): string {
+  const target = describeTarget();
+  return target.kind === "remote"
+    ? `database: Turso Cloud — ${target.host}`
+    : `database: local file — ${target.path}`;
+}
 
 let client: Db | undefined;
 let ready: Promise<void> | undefined;
