@@ -102,6 +102,15 @@ fn make_assignment_clickable(
     row.connect_activated(move |_| ui.open_assignment(&course, &assignment));
 }
 
+/// A boxed list to hold rows: `AdwActionRow` only emits `activated` when it sits
+/// inside a `GtkListBox`, so rows must not be appended to a bare box.
+fn boxed_list() -> gtk::ListBox {
+    let list = gtk::ListBox::new();
+    list.add_css_class("boxed-list");
+    list.set_selection_mode(gtk::SelectionMode::None);
+    list
+}
+
 fn add_tab(stack: &adw::ViewStack, icon: &str, name: &str, title: &str, content: gtk::Box) {
     content.set_margin_top(20);
     content.set_margin_bottom(28);
@@ -202,11 +211,13 @@ fn build_overview(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
     if upcoming.is_empty() {
         page.append(&dim("Nothing due in the next month."));
     } else {
+        let list = boxed_list();
         for a in upcoming {
             let row = widgets::assignment_row(a);
             make_assignment_clickable(ui, course, a, &row);
-            page.append(&row);
+            list.append(&row);
         }
+        page.append(&list);
     }
 
     let announcements = ui
@@ -218,9 +229,11 @@ fn build_overview(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
     if announcements.is_empty() {
         page.append(&dim("No announcements."));
     } else {
+        let list = boxed_list();
         for a in &announcements {
-            page.append(&announcement_with_read(ui, course, a));
+            list.append(&announcement_with_read(ui, course, a));
         }
+        page.append(&list);
     }
     page
 }
@@ -279,11 +292,13 @@ fn build_assignments(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
             continue;
         }
         page.append(&widgets::section(label));
+        let list = boxed_list();
         for a in group {
             let row = widgets::assignment_row(a);
             make_assignment_clickable(ui, course, a, &row);
-            page.append(&row);
+            list.append(&row);
         }
+        page.append(&list);
     }
     page
 }

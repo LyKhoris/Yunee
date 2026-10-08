@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use adw::prelude::*;
 use gtk4 as gtk;
+use gtk4::gdk;
 use gtk4::gio;
 use gtk4::glib;
 
@@ -77,6 +78,8 @@ pub struct Ui {
     pub(crate) files_attempted: RefCell<HashSet<st::LocalId>>,
     /// Pages we have already tried to fetch on demand, keyed by `course|page`.
     pub(crate) pages_attempted: RefCell<HashSet<String>>,
+    /// Decoded images, keyed by URL, so re-rendering a page does not refetch.
+    pub(crate) image_cache: RefCell<HashMap<String, gdk::Texture>>,
     /// The content navigation stack; the last entry is what is on screen.
     pub(crate) screens: RefCell<Vec<Screen>>,
     /// The last course tab viewed, per course, so returning from a detail lands
@@ -198,6 +201,7 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         selected: RefCell::new(None),
         files_attempted: RefCell::new(HashSet::new()),
         pages_attempted: RefCell::new(HashSet::new()),
+        image_cache: RefCell::new(HashMap::new()),
         screens: RefCell::new(Vec::new()),
         course_tab: RefCell::new(HashMap::new()),
         dashboard_page,
@@ -860,6 +864,61 @@ impl Ui {
                 Err(_) => {}
             }
         });
+    }
+
+    /// Fetch an image referenced by a Canvas body and set it on `picture`,
+    /// hiding `spinner` when done. Results are cached by URL for the session.
+    pub(crate) fn load_image(
+        self: &Rc<Self>,
+        src: String,
+        picture: gtk::Picture,
+        spinner: gtk::Spinner,
+    ) {
+        let connection = self.state.connection();
+        let resolved = self.resolve_url(&src);
+        let ui = self.clone();
+        let (tx, rx) = async_channel::bounded(1);
+        std::thread::spawn(move || {
+            let result = runtime().block_on(async {
+                let client = connection
+                    .ok_or_else(|| anyhow::anyhow!("not connected"))?
+                    .client()?;
+                let response = client.download(&resolved).await?;
+                let bytes = response.bytes().await?;
+                Ok::<Vec<u8>, anyhow::Error>(bytes.to_vec())
+            });
+            let _ = tx.send_blocking(result);
+        });
+        glib::MainContext::default().spawn_local(async move {
+            if let Ok(Ok(bytes)) = rx.recv().await {
+                let gbytes = glib::Bytes::from_owned(bytes);
+                if let Ok(texture) = gdk::Texture::from_bytes(&gbytes) {
+                    ui.image_cache.borrow_mut().insert(src, texture.clone());
+                    picture.set_paintable(Some(&texture));
+                }
+            }
+            spinner.stop();
+            spinner.set_visible(false);
+        });
+    }
+
+    /// Resolve a possibly-relative URL in a Canvas body against the server.
+    fn resolve_url(&self, src: &str) -> String {
+        if src.starts_with("http://") || src.starts_with("https://") {
+            return src.to_string();
+        }
+        let base = self.state.base_url().unwrap_or_default();
+        let base = base.trim_end_matches('/');
+        let base = if base.contains("://") {
+            base.to_string()
+        } else {
+            format!("https://{base}")
+        };
+        if src.starts_with('/') {
+            format!("{base}{src}")
+        } else {
+            format!("{base}/{src}")
+        }
     }
 
     pub(crate) fn download_file(self: &Rc<Self>, file: st::FileEntry) {

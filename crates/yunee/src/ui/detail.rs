@@ -13,6 +13,7 @@ use gtk4::gio;
 use yunee_store as st;
 
 use crate::format;
+use crate::html;
 use crate::ui::app::Ui;
 use crate::ui::widgets;
 
@@ -77,7 +78,7 @@ pub(crate) fn assignment(ui: &Rc<Ui>, course: &st::Course, a: &st::Assignment) {
     // Instructions.
     if let Some(desc) = a.description.as_deref().filter(|d| !d.trim().is_empty()) {
         ui.detail_page.append(&widgets::section("Instructions"));
-        ui.detail_page.append(&widgets::rich_text(desc));
+        ui.detail_page.append(&content_view(ui, desc));
     }
 
     submission(ui, a);
@@ -259,7 +260,7 @@ pub(crate) fn page(ui: &Rc<Ui>, course: &st::Course, p: &st::Page) {
 
     if p.has_body() {
         ui.detail_page
-            .append(&widgets::rich_text(p.body.as_deref().unwrap_or_default()));
+            .append(&content_view(ui, p.body.as_deref().unwrap_or_default()));
     } else {
         ui.detail_page.append(&placeholder(
             "text-x-generic-symbolic",
@@ -447,6 +448,68 @@ fn muted(text: &str) -> gtk::Label {
     label.set_wrap(true);
     label.add_css_class("muted");
     label
+}
+
+/// Render a Canvas HTML body: text as rich labels and images fetched and drawn
+/// at their position in the flow.
+fn content_view(ui: &Rc<Ui>, body: &str) -> gtk::Widget {
+    let column = gtk::Box::new(gtk::Orientation::Vertical, 10);
+    column.set_halign(gtk::Align::Fill);
+    for block in html::blocks(body) {
+        match block {
+            html::Block::Text(fragment) => {
+                if !fragment.trim().is_empty() {
+                    column.append(&widgets::rich_text(&fragment));
+                }
+            }
+            html::Block::Image(image) => column.append(&image_widget(ui, &image)),
+        }
+    }
+    column.upcast()
+}
+
+/// One image from a body: a picture sized from its `width`/`height`, filled in
+/// asynchronously (from the cache when we already have it).
+fn image_widget(ui: &Rc<Ui>, image: &html::Image) -> gtk::Widget {
+    let holder = gtk::Box::new(gtk::Orientation::Vertical, 4);
+    holder.set_halign(gtk::Align::Start);
+    holder.set_margin_top(4);
+    holder.set_margin_bottom(4);
+
+    let picture = gtk::Picture::new();
+    picture.set_can_shrink(true);
+    picture.set_content_fit(gtk::ContentFit::Contain);
+    let width = image.width.unwrap_or(360).clamp(48, 560);
+    let height = match (image.width, image.height) {
+        (Some(w), Some(h)) if w > 0 => (h as f64 * width as f64 / w as f64).round() as i32,
+        _ => -1,
+    };
+    picture.set_size_request(width, height);
+    holder.append(&picture);
+
+    let spinner = gtk::Spinner::new();
+    spinner.set_size_request(width, 40);
+    spinner.start();
+    holder.append(&spinner);
+
+    if let Some(texture) = ui.image_cache.borrow().get(&image.src).cloned() {
+        picture.set_paintable(Some(&texture));
+        spinner.stop();
+        holder.remove(&spinner);
+    } else {
+        ui.load_image(image.src.clone(), picture.clone(), spinner.clone());
+    }
+
+    if let Some(alt) = &image.alt {
+        if !alt.trim().is_empty() {
+            let caption = gtk::Label::new(Some(alt));
+            caption.set_xalign(0.0);
+            caption.add_css_class("tiny");
+            caption.add_css_class("muted");
+            holder.append(&caption);
+        }
+    }
+    holder.upcast()
 }
 
 fn sync_button(ui: &Rc<Ui>) -> gtk::Button {
