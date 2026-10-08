@@ -49,6 +49,10 @@ modules:
       env:
         CARGO_HOME: /run/build/yunee/cargo
         CARGO_NET_OFFLINE: 'true'
+        # aws-lc-sys (via rustls) otherwise compiles its jitterentropy source,
+        # which refuses to build with the -O2 that the SDK's CFLAGS impose.
+        # Linux gets randomness from getrandom anyway.
+        AWS_LC_SYS_NO_JITTER_ENTROPY: '1'
     build-commands:
       # The build sandbox has no network, so crates are vendored (see
       # `cargo vendor vendor`, run before building — and in CI).
