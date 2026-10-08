@@ -97,10 +97,9 @@ pub fn present(
         "Opens Canvas → Account → Settings → Approved Integrations",
     ));
 
-    let hint = gtk::Label::new(Some(
-        "Create one under Account → Settings → New Access Token. Yunee keeps the token \
-         on this machine and only ever sends it to your own Canvas server.",
-    ));
+    // The link above is the navigation; this only says what to do once there.
+    let hint = gtk::Label::new(None);
+    hint.set_markup("Then scroll down to the <b>New Access Token</b> button.");
     hint.set_xalign(0.0);
     hint.set_wrap(true);
     hint.add_css_class("muted");
