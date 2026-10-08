@@ -1,32 +1,91 @@
-//! Small view helpers shared by the pages: CSS, list clearing, and the row
-//! builders (course, assignment, announcement, file) with their status pills.
+//! Shared view pieces, styled after Canvas.
+//!
+//! Canvas's look here: a dark navy global rail, white content on a light page,
+//! course "cards" with a per-course accent colour, and status pills. GTK is not
+//! the web, so this is a faithful adaptation of the layout and palette rather
+//! than a pixel copy.
 
 use adw::prelude::*;
 use gtk4 as gtk;
 use yunee_store as st;
 
-/// Application stylesheet. Deliberately tiny — most of the look is stock
-/// libadwaita; this only adds the status pills and a few accents.
-pub const CSS: &str = r#"
-.pill {
-    border-radius: 999px;
-    padding: 1px 10px;
-    font-size: 0.75rem;
-    font-weight: 600;
+/// Course accent palette — the coloured top strip and title on a course card.
+pub const ACCENTS: [&str; 8] = [
+    "#C0392B", // red
+    "#8E44AD", // purple
+    "#2E86C1", // blue
+    "#1E8449", // green
+    "#CA6F1E", // orange
+    "#117A65", // teal
+    "#B7950B", // olive
+    "#B03A2E", // brick
+];
+
+/// The stylesheet. Most of the visual identity of the rewrite lives here.
+pub fn css() -> String {
+    let mut accents = String::new();
+    for (i, color) in ACCENTS.iter().enumerate() {
+        accents.push_str(&format!(
+            ".accent-{i} {{ background: {color}; }}\n.ct-{i} {{ color: {color}; }}\n.accent-border-{i} {{ border-left: 4px solid {color}; }}\n"
+        ));
+    }
+    format!(
+        r#"
+/* --- the global rail --- */
+.rail {{ background: #00274C; }}
+.rail-label {{ color: #e9eef4; font-size: 11px; font-weight: 600; }}
+.rail-icon {{ color: #e9eef4; }}
+.rail-title {{ color: #ffffff; font-weight: 700; }}
+.rail listbox {{ background: transparent; }}
+.rail row {{ background: transparent; border-radius: 6px; margin: 2px 6px; }}
+.rail row:selected {{ background: rgba(255,255,255,0.14); }}
+
+/* --- page chrome --- */
+.page-title {{ font-size: 24px; font-weight: 400; color: #273540; }}
+.section {{ font-weight: 700; color: #273540; }}
+.muted {{ color: #6b7785; }}
+.tiny {{ font-size: 0.8rem; color: #6b7785; }}
+
+/* --- cards --- */
+.card {{
+    background: #ffffff;
+    border: 1px solid #d7dbe0;
+    border-radius: 6px;
+    padding: 0;
+}}
+.card:hover {{ border-color: #b9c0c8; }}
+.card-body {{ padding: 10px 12px 12px 12px; }}
+.card-title {{ font-weight: 700; font-size: 14px; }}
+.card-name {{ color: #273540; }}
+
+/* --- pills --- */
+.pill {{ border-radius: 10px; padding: 0 8px; font-size: 0.72rem; font-weight: 700; }}
+.pill.ok     {{ background: #e3f2e9; color: #1E8449; }}
+.pill.warn   {{ background: #fdf0dc; color: #9a6a00; }}
+.pill.danger {{ background: #fbe6e6; color: #c0392b; }}
+.pill.muted  {{ background: #eceef1; color: #5e6b78; }}
+.pill.info   {{ background: #e4eef7; color: #1f6fb2; }}
+
+/* --- rows --- */
+.row-title {{ font-weight: 700; color: #273540; }}
+.row-sub {{ font-size: 0.85rem; color: #6b7785; }}
+.left-accent {{ border-left: 4px solid #1E8449; }}
+.course-nav {{ background: #f7f8fa; border-right: 1px solid #e2e5e9; }}
+.course-nav row {{ background: transparent; }}
+.course-nav row:selected {{ background: #e8eaed; }}
+
+/* --- dashboard right rail --- */
+.railpanel-title {{ font-weight: 700; color: #273540; font-size: 0.95rem; }}
+
+{accents}
+"#
+    )
 }
-.pill.ok     { background: alpha(#3584e4, 0.18); color: #1c71d8; }
-.pill.warn   { background: alpha(#e5a50a, 0.22); color: #9a6a00; }
-.pill.danger { background: alpha(#e01b24, 0.18); color: #c01c28; }
-.pill.muted  { background: alpha(#77767b, 0.18); color: #5e5c64; }
-.dim         { opacity: 0.65; }
-.page-title  { font-weight: 800; font-size: 1.25rem; }
-.section     { font-weight: 700; margin-top: 6px; }
-"#;
 
 /// Attach the stylesheet to the default display, once.
 pub fn install_css() {
     let provider = gtk::CssProvider::new();
-    provider.load_from_string(CSS);
+    provider.load_from_string(&css());
     if let Some(display) = gtk::gdk::Display::default() {
         gtk::style_context_add_provider_for_display(
             &display,
@@ -36,21 +95,18 @@ pub fn install_css() {
     }
 }
 
-/// Remove every child of a box.
+/// A stable accent index for a course, derived from its Canvas id.
+pub fn accent_index(canvas_id: &str) -> usize {
+    let sum: u32 = canvas_id.bytes().map(|b| b as u32).sum();
+    (sum as usize) % ACCENTS.len()
+}
+
 pub fn clear_box(container: &gtk::Box) {
     while let Some(child) = container.first_child() {
         container.remove(&child);
     }
 }
 
-/// Remove every row of a list box.
-pub fn clear_list(list: &gtk::ListBox) {
-    while let Some(child) = list.first_child() {
-        list.remove(&child);
-    }
-}
-
-/// A pill label with a style class.
 pub fn pill(text: &str, class: &str) -> gtk::Label {
     let label = gtk::Label::new(Some(text));
     label.add_css_class("pill");
@@ -59,14 +115,21 @@ pub fn pill(text: &str, class: &str) -> gtk::Label {
     label
 }
 
-/// A titled preferences group for a run of rows.
-pub fn group(title: &str) -> adw::PreferencesGroup {
-    let group = adw::PreferencesGroup::new();
-    group.set_title(title);
-    group
+pub fn page_title(text: &str) -> gtk::Label {
+    let label = gtk::Label::new(Some(text));
+    label.set_xalign(0.0);
+    label.add_css_class("page-title");
+    label
 }
 
-/// The "nothing here" panel.
+pub fn section(text: &str) -> gtk::Label {
+    let label = gtk::Label::new(Some(text));
+    label.set_xalign(0.0);
+    label.add_css_class("section");
+    label.set_margin_top(8);
+    label
+}
+
 pub fn empty_state(icon: &str, title: &str, description: &str) -> adw::StatusPage {
     let page = adw::StatusPage::new();
     page.set_icon_name(Some(icon));
@@ -76,59 +139,172 @@ pub fn empty_state(icon: &str, title: &str, description: &str) -> adw::StatusPag
     page
 }
 
-/// The status pill for an assignment.
+/// The status pill for an assignment, Canvas-style.
 pub fn assignment_pill(a: &st::Assignment) -> gtk::Label {
     if a.excused {
         return pill("excused", "muted");
     }
-    if let Some(grade) = &a.grade {
-        return pill(grade, "ok");
+    if a.grade.is_some() {
+        return pill(a.grade.as_deref().unwrap_or("graded"), "ok");
     }
     if a.is_submitted() {
         return pill("submitted", "ok");
     }
-    if a.missing
-        || a.due_at
-            .as_deref()
-            .map(crate::format::is_overdue)
-            .unwrap_or(false)
-    {
+    if a.missing {
         return pill("missing", "danger");
+    }
+    if a.due_at
+        .as_deref()
+        .map(crate::format::is_overdue)
+        .unwrap_or(false)
+    {
+        return pill("overdue", "danger");
     }
     pill("todo", "warn")
 }
 
-/// One assignment as an ActionRow.
+/// "5 / 5" or "- / 5" — the Score column in Canvas.
+pub fn score_text(a: &st::Assignment) -> String {
+    let points = a
+        .points_possible
+        .map(trim_number)
+        .unwrap_or_else(|| "-".into());
+    match a.score {
+        Some(score) => format!("{} / {}", trim_number(score), points),
+        None => format!("- / {points}"),
+    }
+}
+
+fn trim_number(value: f64) -> String {
+    if (value.fract()).abs() < f64::EPSILON {
+        format!("{}", value as i64)
+    } else {
+        format!("{value:.1}")
+    }
+}
+
+/// A small "icon + count" chip for a course card.
+pub fn count_chip(icon: &str, count: usize) -> gtk::Box {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    let image = gtk::Image::from_icon_name(icon);
+    image.set_pixel_size(14);
+    image.add_css_class("muted");
+    row.append(&image);
+    if count > 0 {
+        let label = gtk::Label::new(Some(&count.to_string()));
+        label.add_css_class("tiny");
+        row.append(&label);
+    }
+    row
+}
+
+/// A course card, as on the Canvas dashboard.
+pub fn course_card(course: &st::Course, announcements: usize, assignments: usize) -> gtk::Button {
+    let index = accent_index(&course.canvas_id);
+    let card = gtk::Button::new();
+    card.add_css_class("card");
+    card.set_hexpand(true);
+
+    let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
+
+    let strip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    strip.set_height_request(6);
+    strip.add_css_class(&format!("accent-{index}"));
+    outer.append(&strip);
+
+    let body = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    body.add_css_class("card-body");
+
+    let name = gtk::Label::new(Some(&course.name));
+    name.set_xalign(0.0);
+    name.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    name.add_css_class("card-title");
+    name.add_css_class(&format!("ct-{index}"));
+    body.append(&name);
+
+    let title = gtk::Label::new(Some(&course.title));
+    title.set_xalign(0.0);
+    title.set_wrap(true);
+    title.set_lines(2);
+    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    title.add_css_class("card-name");
+    body.append(&title);
+
+    let term = gtk::Label::new(Some(course.term.as_deref().unwrap_or("")));
+    term.set_xalign(0.0);
+    term.add_css_class("tiny");
+    term.set_margin_top(4);
+    body.append(&term);
+
+    let icons = gtk::Box::new(gtk::Orientation::Horizontal, 16);
+    icons.set_margin_top(8);
+    icons.append(&count_chip("chat-bubbles-symbolic", announcements));
+    icons.append(&count_chip("document-edit-symbolic", assignments));
+    body.append(&icons);
+
+    outer.append(&body);
+    card.set_child(Some(&outer));
+    card
+}
+
+/// A "To Do" entry, as in the Canvas right rail.
+pub fn todo_row(title: &str, course: &str, detail: &str) -> adw::ActionRow {
+    let row = adw::ActionRow::new();
+    row.set_title(&gtk::glib::markup_escape_text(title));
+    row.set_subtitle(&gtk::glib::markup_escape_text(&format!(
+        "{course}\n{detail}"
+    )));
+    row.add_prefix(&gtk::Image::from_icon_name("document-edit-symbolic"));
+    row.set_activatable(false);
+    row
+}
+
+/// An assignment row: title bold, "status | Due … | score" beneath.
 pub fn assignment_row(a: &st::Assignment) -> adw::ActionRow {
     let row = adw::ActionRow::new();
     row.set_title(&gtk::glib::markup_escape_text(&a.name));
 
     let mut bits: Vec<String> = Vec::new();
-    match &a.due_at {
-        Some(due) => bits.push(crate::format::due_label(due)),
-        None => bits.push("No due date".into()),
+    if a.is_submitted() {
+        bits.push(if a.grade.is_some() {
+            "Graded".into()
+        } else {
+            "Submitted".into()
+        });
+    } else if a.missing {
+        bits.push("Missing".into());
+    } else if a.due_at.is_some() {
+        bits.push("Upcoming".into());
+    } else {
+        bits.push("No due date".into());
     }
-    if let Some(points) = a.points_possible {
-        bits.push(format!("{} pts", trim_number(points)));
+    if let Some(due) = &a.due_at {
+        bits.push(format!("Due {}", crate::format::due_label(due)));
     }
-    row.set_subtitle(&bits.join(" · "));
+    bits.push(score_text(a));
+    row.set_subtitle(&bits.join("  |  "));
+
+    row.add_prefix(&gtk::Image::from_icon_name("document-edit-symbolic"));
     row.add_suffix(&assignment_pill(a));
     row.set_activatable(false);
     row
 }
 
-/// One announcement as an expander with the rendered body.
+/// An announcement as an expander with the rendered body.
 pub fn announcement_row(a: &st::Announcement, course_name: &str) -> adw::ExpanderRow {
     let row = adw::ExpanderRow::new();
     row.set_title(&gtk::glib::markup_escape_text(&a.title));
 
     let mut sub = course_name.to_string();
     if let Some(posted) = &a.posted_at {
-        sub.push_str(" · ");
+        sub.push_str("  ·  ");
         sub.push_str(&crate::format::short_date(posted));
     }
+    if let Some(author) = &a.author {
+        sub.push_str("  ·  ");
+        sub.push_str(author);
+    }
     row.set_subtitle(&sub);
-
     if a.is_unread() {
         row.add_suffix(&pill("new", "ok"));
     }
@@ -147,15 +323,13 @@ pub fn announcement_row(a: &st::Announcement, course_name: &str) -> adw::Expande
     };
     body.set_markup(&markup);
     row.add_row(&body);
-
     row
 }
 
-/// One course file row, with a download button wired by the caller.
+/// A file row with a download button.
 pub fn file_row(f: &st::FileEntry) -> (adw::ActionRow, gtk::Button) {
     let row = adw::ActionRow::new();
     row.set_title(&gtk::glib::markup_escape_text(&f.display_name));
-
     let mut bits: Vec<String> = Vec::new();
     if let Some(size) = f.size {
         bits.push(crate::format::bytes_label(size));
@@ -166,25 +340,18 @@ pub fn file_row(f: &st::FileEntry) -> (adw::ActionRow, gtk::Button) {
             bits.push(short);
         }
     }
-    row.set_subtitle(&bits.join(" · "));
+    row.set_subtitle(&bits.join("  ·  "));
     row.set_activatable(false);
+    row.add_prefix(&gtk::Image::from_icon_name("text-x-generic-symbolic"));
 
     let button = gtk::Button::from_icon_name("folder-download-symbolic");
     button.set_valign(gtk::Align::Center);
     button.add_css_class("flat");
     button.set_tooltip_text(Some(if f.local_path.is_some() {
-        "Downloaded — click to open the folder entry path"
+        "Downloaded"
     } else {
         "Download"
     }));
     row.add_suffix(&button);
     (row, button)
-}
-
-fn trim_number(value: f64) -> String {
-    if (value.fract()).abs() < f64::EPSILON {
-        format!("{}", value as i64)
-    } else {
-        format!("{value:.1}")
-    }
 }

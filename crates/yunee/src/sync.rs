@@ -159,17 +159,43 @@ async fn sync_course(
         Err(e) => return Err(friendly(&e, "modules")),
     }
 
-    // Folders + files.
-    if let Ok(folders) = client.list_folders(&course.id).await {
-        for folder in &folders {
-            let _ = store.upsert_folder(&map_folder(local_id, folder, now));
+    Ok(())
+}
+
+/// Fetch one course's folders and files *on demand* — the Files tab calls this
+/// when it opens.
+///
+/// Files are the most expensive thing to pull from Canvas (the request is
+/// bucketed as costly), and sweeping every course on every sync trips the rate
+/// limiter. Canvas itself loads files lazily, and so do we.
+pub async fn sync_course_files(
+    store: &Store,
+    connection: &Connection,
+    course_canvas_id: &str,
+    course_local_id: st::LocalId,
+) -> Result<usize, String> {
+    let client = connection.client().map_err(|e| e.to_string())?;
+    let now = Utc::now().to_rfc3339();
+    let mut count = 0;
+
+    match client.list_folders(course_canvas_id).await {
+        Ok(folders) => {
+            for folder in &folders {
+                let _ = store.upsert_folder(&map_folder(course_local_id, folder, &now));
+            }
         }
+        Err(e) if e.is_not_found() => {}
+        Err(e) => return Err(friendly(&e, "folders")),
     }
-    match client.list_files(&course.id).await {
+
+    match client.list_files(course_canvas_id).await {
         Ok(files) => {
             for file in &files {
-                if store.upsert_file(&map_file(local_id, file, now)).is_ok() {
-                    counts.files += 1;
+                if store
+                    .upsert_file(&map_file(course_local_id, file, &now))
+                    .is_ok()
+                {
+                    count += 1;
                 }
             }
         }
@@ -177,7 +203,7 @@ async fn sync_course(
         Err(e) => return Err(friendly(&e, "files")),
     }
 
-    Ok(())
+    Ok(count)
 }
 
 async fn sync_planner(
@@ -287,7 +313,7 @@ fn map_assignment(course_id: st::LocalId, a: &cv::Assignment, now: &str) -> st::
         points_possible: a.points_possible,
         submission_types: serde_json::to_string(&a.submission_types).ok(),
         html_url: a.html_url.clone(),
-        quiz_id: a.quiz_id.map(|q| q.to_string()),
+        quiz_id: a.quiz_id.clone(),
         published: a.published.unwrap_or(true),
         submission_state: sub.and_then(|s| s.workflow_state.clone()),
         submitted_at: sub.and_then(|s| s.submitted_at.clone()),
@@ -408,7 +434,7 @@ fn map_planner(item: &cv::PlannerItem, now: &str) -> Option<PlannerItem> {
         .clone()
         .unwrap_or_else(|| "unknown".into());
     let plannable_id = item.plannable_id.clone();
-    let course_id = item.course_id.map(|c| c.to_string());
+    let course_id = item.course_id.clone();
     let key = format!(
         "{plannable_type}:{}:{}",
         plannable_id.clone().unwrap_or_default(),

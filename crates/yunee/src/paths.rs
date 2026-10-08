@@ -3,7 +3,15 @@
 use std::path::PathBuf;
 
 /// `$XDG_DATA_HOME/yunee`, or `~/.local/share/yunee`.
+///
+/// `YUNEE_DATA_DIR` overrides everything — used to keep test runs out of the
+/// real profile.
 pub fn data_dir() -> PathBuf {
+    if let Some(dir) = std::env::var_os("YUNEE_DATA_DIR") {
+        if !dir.is_empty() {
+            return PathBuf::from(dir);
+        }
+    }
     let base = match std::env::var_os("XDG_DATA_HOME") {
         Some(v) if !v.is_empty() => PathBuf::from(v),
         _ => {
