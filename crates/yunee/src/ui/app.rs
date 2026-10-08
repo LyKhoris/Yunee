@@ -3,7 +3,7 @@
 //! carries a view switcher for a course's sections.
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -20,13 +20,46 @@ use crate::paths;
 use crate::runtime::runtime;
 use crate::state::AppState;
 use crate::sync::{self, SyncReport};
-use crate::ui::{connect, course, dashboard, settings, widgets};
+use crate::ui::{connect, course, dashboard, detail, settings, widgets};
 
 /// The app's reverse-DNS identity.
 pub const APP_ID: &str = "io.github.LyKhoris.Yunee";
 
 /// Where to send someone who wants the latest build.
 pub const RELEASES_URL: &str = "https://github.com/LyKhoris/Yunee/releases/latest";
+
+/// One position in the content navigation stack. The sidebar selects a base
+/// screen; opening an assignment, page, file, or plain web item pushes a detail
+/// on top of it, and the header's back button pops it.
+#[derive(Clone)]
+pub(crate) enum Screen {
+    Dashboard,
+    Settings,
+    Course(String),
+    Assignment {
+        course: String,
+        id: String,
+        title: String,
+    },
+    Page {
+        course: String,
+        key: String,
+        title: String,
+    },
+    File {
+        course: String,
+        id: String,
+        title: String,
+    },
+    /// A module item Yunee cannot render offline: a quiz, an external tool, a
+    /// discussion. Shows what it is and offers Canvas + a sync.
+    Web {
+        course: String,
+        title: String,
+        kind: String,
+        url: Option<String>,
+    },
+}
 
 /// The live UI, shared between widgets through `Rc`.
 pub struct Ui {
@@ -38,11 +71,20 @@ pub struct Ui {
     pub(crate) content: gtk::Stack,
     pub(crate) content_header: adw::HeaderBar,
     pub(crate) content_title: adw::WindowTitle,
+    pub(crate) back_button: gtk::Button,
     pub(crate) selected: RefCell<Option<st::Course>>,
     /// Courses whose files we have already tried to load on demand.
     pub(crate) files_attempted: RefCell<HashSet<st::LocalId>>,
+    /// Pages we have already tried to fetch on demand, keyed by `course|page`.
+    pub(crate) pages_attempted: RefCell<HashSet<String>>,
+    /// The content navigation stack; the last entry is what is on screen.
+    pub(crate) screens: RefCell<Vec<Screen>>,
+    /// The last course tab viewed, per course, so returning from a detail lands
+    /// back where you left off.
+    pub(crate) course_tab: RefCell<HashMap<st::LocalId, String>>,
     pub(crate) dashboard_page: gtk::Box,
     pub(crate) course_page: gtk::Box,
+    pub(crate) detail_page: gtk::Box,
     pub(crate) settings_page: gtk::Box,
 }
 
@@ -86,6 +128,13 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     let content_header = adw::HeaderBar::new();
     content_header.set_title_widget(Some(&content_title));
 
+    // Shown only while a detail is pushed; pops back to the course beneath.
+    let back_button = gtk::Button::from_icon_name("go-previous-symbolic");
+    back_button.set_tooltip_text(Some("Back"));
+    back_button.add_css_class("flat");
+    back_button.set_visible(false);
+    content_header.pack_start(&back_button);
+
     let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
     refresh.set_tooltip_text(Some("Sync with Canvas"));
     refresh.add_css_class("flat");
@@ -105,8 +154,9 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
 
     let dashboard_page = gtk::Box::new(gtk::Orientation::Vertical, 8);
     let course_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let detail_page = gtk::Box::new(gtk::Orientation::Vertical, 8);
     let settings_page = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    for page in [&dashboard_page, &settings_page] {
+    for page in [&dashboard_page, &detail_page, &settings_page] {
         page.set_margin_top(18);
         page.set_margin_bottom(24);
         page.set_margin_start(20);
@@ -117,6 +167,7 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     content.set_transition_type(gtk::StackTransitionType::Crossfade);
     content.add_titled(&scroll(&dashboard_page), Some("dashboard"), "Dashboard");
     content.add_titled(&course_page, Some("course"), "Course");
+    content.add_titled(&scroll(&detail_page), Some("detail"), "Detail");
     content.add_titled(&scroll(&settings_page), Some("settings"), "Settings");
 
     let content_toolbar = adw::ToolbarView::new();
@@ -143,10 +194,15 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         content,
         content_header,
         content_title,
+        back_button: back_button.clone(),
         selected: RefCell::new(None),
         files_attempted: RefCell::new(HashSet::new()),
+        pages_attempted: RefCell::new(HashSet::new()),
+        screens: RefCell::new(Vec::new()),
+        course_tab: RefCell::new(HashMap::new()),
         dashboard_page,
         course_page,
+        detail_page,
         settings_page,
     });
 
@@ -155,6 +211,10 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     ui.reload_settings();
     ui.show_dashboard();
 
+    {
+        let ui = ui.clone();
+        back_button.connect_clicked(move |_| ui.go_back());
+    }
     {
         let ui = ui.clone();
         refresh.connect_clicked(move |_| ui.sync_now());
@@ -245,36 +305,271 @@ impl Ui {
         self.content_header.set_title_widget(Some(widget));
     }
 
-    pub(crate) fn show_dashboard(&self) {
+    pub(crate) fn set_back_visible(&self, visible: bool) {
+        self.back_button.set_visible(visible);
+    }
+
+    /// Show the dashboard (header + page) without touching the nav stack.
+    fn display_dashboard(&self) {
         self.content.set_visible_child_name("dashboard");
         self.set_header_widget(&self.content_title);
         self.content_title.set_title("Dashboard");
         self.content_title.set_subtitle("");
         self.window.set_title(Some("Yunee"));
+        self.set_back_visible(false);
         self.split.set_show_content(true);
     }
 
-    pub(crate) fn show_settings(&self) {
+    fn display_settings(&self) {
         self.content.set_visible_child_name("settings");
         self.set_header_widget(&self.content_title);
         self.content_title.set_title("Settings");
         self.content_title.set_subtitle("");
         self.window.set_title(Some("Yunee"));
+        self.set_back_visible(false);
         self.split.set_show_content(true);
     }
 
+    /// Switch the content area to a detail view: back button on, the detail's
+    /// own title in the header, and the detail page visible.
+    pub(crate) fn enter_detail(&self, title: &str, subtitle: &str) {
+        let window_title = adw::WindowTitle::new(title, subtitle);
+        self.set_header_widget(&window_title);
+        self.set_back_visible(true);
+        self.content.set_visible_child_name("detail");
+        self.window.set_title(Some(title));
+        self.split.set_show_content(true);
+    }
+
+    pub(crate) fn show_dashboard(self: &Rc<Self>) {
+        self.select(Screen::Dashboard);
+    }
+
+    pub(crate) fn show_settings(self: &Rc<Self>) {
+        self.select(Screen::Settings);
+    }
+
     pub(crate) fn show_course(self: &Rc<Self>, course: st::Course) {
-        course::open(self, course);
+        self.select(Screen::Course(course.canvas_id));
+    }
+
+    // ------------------------------------------------------------------
+    // Navigation stack
+    // ------------------------------------------------------------------
+
+    /// Replace the stack with a base screen (a sidebar selection).
+    pub(crate) fn select(self: &Rc<Self>, screen: Screen) {
+        *self.screens.borrow_mut() = vec![screen.clone()];
+        self.render_screen(&screen);
+    }
+
+    /// Push a detail on top of the current screen.
+    pub(crate) fn push_detail(self: &Rc<Self>, screen: Screen) {
+        if self.screens.borrow().is_empty() {
+            self.screens.borrow_mut().push(Screen::Dashboard);
+        }
+        self.screens.borrow_mut().push(screen.clone());
+        self.render_screen(&screen);
+    }
+
+    pub(crate) fn go_back(self: &Rc<Self>) {
+        let top = {
+            let mut stack = self.screens.borrow_mut();
+            if stack.len() > 1 {
+                stack.pop();
+            }
+            stack.last().cloned()
+        };
+        if let Some(top) = top {
+            self.render_screen(&top);
+        }
+    }
+
+    /// Render whatever is on top of the stack (after a sync or a data change).
+    pub(crate) fn render_top(self: &Rc<Self>) {
+        match self.screens.borrow().last().cloned() {
+            Some(top) => self.render_screen(&top),
+            None => self.show_dashboard(),
+        }
+    }
+
+    fn render_screen(self: &Rc<Self>, screen: &Screen) {
+        match screen {
+            Screen::Dashboard => {
+                self.reload_dashboard();
+                self.display_dashboard();
+            }
+            Screen::Settings => {
+                self.reload_settings();
+                self.display_settings();
+            }
+            Screen::Course(canvas_id) => match self.course_by_canvas(canvas_id) {
+                Some(course) => course::open(self, course),
+                None => self.gone(),
+            },
+            Screen::Assignment { course, id, title } => {
+                let Some(course) = self.course_by_canvas(course) else {
+                    return self.gone();
+                };
+                match self
+                    .state
+                    .store
+                    .get_assignment_by_canvas_id(id)
+                    .ok()
+                    .flatten()
+                {
+                    Some(assignment) => {
+                        *self.selected.borrow_mut() = Some(course.clone());
+                        detail::assignment(self, &course, &assignment);
+                    }
+                    None => detail::missing(
+                        self,
+                        &course,
+                        "Assignment",
+                        Some("This assignment is not saved on this machine yet."),
+                        Some(title),
+                        detail::Retry::Sync,
+                    ),
+                }
+            }
+            Screen::Page { course, key, title } => {
+                let Some(course) = self.course_by_canvas(course) else {
+                    return self.gone();
+                };
+                *self.selected.borrow_mut() = Some(course.clone());
+                match self.state.store.get_page(course.id, key).ok().flatten() {
+                    Some(page) => detail::page(self, &course, &page),
+                    None => {
+                        // No row at all means sync never saw this page (its
+                        // course's Pages index is disabled). Try once on open.
+                        let attempt_key = format!("{}|{}", course.canvas_id, key);
+                        let first = self.pages_attempted.borrow_mut().insert(attempt_key);
+                        if first && self.state.connection().is_some() {
+                            detail::loading(self, &course, title);
+                            self.load_page(course.canvas_id.clone(), key.clone());
+                        } else {
+                            detail::missing(
+                                self,
+                                &course,
+                                "Page",
+                                Some("This page hasn't been downloaded yet."),
+                                Some(title),
+                                detail::Retry::Page { key: key.clone() },
+                            );
+                        }
+                    }
+                }
+            }
+            Screen::File { course, id, title } => {
+                let Some(course) = self.course_by_canvas(course) else {
+                    return self.gone();
+                };
+                match self.state.store.get_file(id).ok().flatten() {
+                    Some(file) => {
+                        *self.selected.borrow_mut() = Some(course.clone());
+                        detail::file(self, &course, &file);
+                    }
+                    None => detail::missing(
+                        self,
+                        &course,
+                        "File",
+                        Some("This course's files have not been loaded yet."),
+                        Some(title),
+                        detail::Retry::LoadFiles,
+                    ),
+                }
+            }
+            Screen::Web {
+                course,
+                title,
+                kind,
+                url,
+            } => {
+                let Some(course) = self.course_by_canvas(course) else {
+                    return self.gone();
+                };
+                *self.selected.borrow_mut() = Some(course.clone());
+                detail::web(self, &course, title, kind, url.as_deref());
+            }
+        }
+    }
+
+    fn gone(self: &Rc<Self>) {
+        self.toast("That course is no longer available.");
+        self.show_dashboard();
+    }
+
+    pub(crate) fn course_by_canvas(&self, canvas_id: &str) -> Option<st::Course> {
+        let local = self.state.store.course_local_id(canvas_id).ok().flatten()?;
+        self.state.store.get_course(local).ok().flatten()
+    }
+
+    /// Open an assignment's detail from a course row.
+    pub(crate) fn open_assignment(self: &Rc<Self>, course: &st::Course, a: &st::Assignment) {
+        self.push_detail(Screen::Assignment {
+            course: course.canvas_id.clone(),
+            id: a.canvas_id.clone(),
+            title: a.name.clone(),
+        });
+    }
+
+    /// Resolve a module item to the right detail for its type.
+    pub(crate) fn open_module_item(self: &Rc<Self>, course: &st::Course, item: &st::ModuleItem) {
+        let course_id = course.canvas_id.clone();
+        match item.item_type.as_deref() {
+            Some("Assignment") => match item.content_id.clone() {
+                Some(id) => self.push_detail(Screen::Assignment {
+                    course: course_id,
+                    id,
+                    title: item.title.clone(),
+                }),
+                None => self.push_detail(Screen::Web {
+                    course: course_id,
+                    title: item.title.clone(),
+                    kind: "Assignment".into(),
+                    url: item.html_url.clone(),
+                }),
+            },
+            Some("Page") => {
+                let key = item
+                    .content_id
+                    .clone()
+                    .or_else(|| slug_from_url(item.html_url.as_deref()))
+                    .unwrap_or_default();
+                self.push_detail(Screen::Page {
+                    course: course_id,
+                    key,
+                    title: item.title.clone(),
+                });
+            }
+            Some("File") => self.push_detail(Screen::File {
+                course: course_id,
+                id: item.content_id.clone().unwrap_or_default(),
+                title: item.title.clone(),
+            }),
+            // An external link has no offline body — hand it to the browser.
+            Some("ExternalUrl") => {
+                if let Some(url) = item.html_url.clone() {
+                    self.open_url(&url);
+                }
+            }
+            // A module item's text header is shown inline, not opened.
+            Some("SubHeader") => {}
+            other => self.push_detail(Screen::Web {
+                course: course_id,
+                title: item.title.clone(),
+                kind: item_type_label(other).into(),
+                url: item.html_url.clone(),
+            }),
+        }
     }
 
     /// Reload every synced view from the local store.
     pub(crate) fn reload_all(self: &Rc<Self>) {
         self.reload_sidebar();
         self.reload_dashboard();
-        if let Some(course) = self.selected.borrow().clone() {
-            course::open(self, course);
-        }
         self.reload_settings();
+        self.render_top();
     }
 
     pub(crate) fn reload_dashboard(self: &Rc<Self>) {
@@ -532,8 +827,36 @@ impl Ui {
         });
         glib::MainContext::default().spawn_local(async move {
             match rx.recv().await {
-                Ok(Ok(_n)) => course::open(&ui, course),
+                Ok(Ok(_n)) => ui.reload_all(),
                 Ok(Err(e)) => ui.toast(&format!("Could not load files: {e}")),
+                Err(_) => {}
+            }
+        });
+    }
+
+    /// Fetch a single wiki page on demand, then re-render (it may be a course
+    /// whose Pages index is disabled, so a full sync cannot pre-fetch it).
+    pub(crate) fn load_page(self: &Rc<Self>, course_canvas_id: String, key: String) {
+        let Some(connection) = self.state.connection() else {
+            self.toast("Connect to Canvas first.");
+            return;
+        };
+        let store = self.state.store.clone();
+        let ui = self.clone();
+        let (tx, rx) = async_channel::bounded(1);
+        std::thread::spawn(move || {
+            let result = runtime().block_on(sync::fetch_page(
+                &store,
+                &connection,
+                &course_canvas_id,
+                &key,
+            ));
+            let _ = tx.send_blocking(result);
+        });
+        glib::MainContext::default().spawn_local(async move {
+            match rx.recv().await {
+                Ok(Ok(())) => ui.reload_all(),
+                Ok(Err(e)) => ui.toast(&format!("Could not load page: {e}")),
                 Err(_) => {}
             }
         });
@@ -621,6 +944,32 @@ fn short_course_name(name: &str) -> String {
         name.to_string()
     } else {
         short
+    }
+}
+
+/// The last path segment of a Canvas URL — the slug a page is addressed by.
+fn slug_from_url(url: Option<&str>) -> Option<String> {
+    let url = url?;
+    let path = url.split(['?', '#']).next().unwrap_or(url);
+    let slug = path.trim_end_matches('/').rsplit('/').next()?;
+    if slug.is_empty() {
+        None
+    } else {
+        Some(slug.to_string())
+    }
+}
+
+/// A human label for a module item's Canvas type.
+fn item_type_label(item_type: Option<&str>) -> &'static str {
+    match item_type.unwrap_or("") {
+        "Assignment" => "Assignment",
+        "Quiz" => "Quiz",
+        "File" => "File",
+        "Page" => "Page",
+        "Discussion" => "Discussion",
+        "ExternalTool" => "External tool",
+        "ExternalUrl" => "Link",
+        _ => "Item",
     }
 }
 

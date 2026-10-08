@@ -158,6 +158,32 @@ pub struct Folder {
     pub updated_at: String,
 }
 
+/// A Canvas wiki page, stored so it can be read offline.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Page {
+    pub id: LocalId,
+    /// Canvas's page id when it sends one, else the `url` slug.
+    pub canvas_id: String,
+    pub course_id: LocalId,
+    pub page_id: Option<String>,
+    /// The stable per-course slug, e.g. `syllabus`.
+    pub url: Option<String>,
+    pub title: String,
+    /// Canvas HTML body.
+    pub body: Option<String>,
+    pub updated_at: String,
+}
+
+impl Page {
+    /// True when we hold a body worth rendering.
+    pub fn has_body(&self) -> bool {
+        self.body
+            .as_deref()
+            .map(|b| !b.trim().is_empty())
+            .unwrap_or(false)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PlannerItem {
     pub id: LocalId,
@@ -195,5 +221,6 @@ pub struct SyncCounts {
     pub announcements: usize,
     pub modules: usize,
     pub files: usize,
+    pub pages: usize,
     pub planner: usize,
 }

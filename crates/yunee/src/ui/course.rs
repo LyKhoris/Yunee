@@ -63,11 +63,43 @@ pub fn open(ui: &Rc<Ui>, course: st::Course) {
 
     ui.course_page.append(&stack);
     ui.set_header_widget(&switcher);
+    ui.set_back_visible(false);
     ui.content.set_visible_child_name("course");
     ui.window.set_title(Some(&course.name));
     ui.split.set_show_content(true);
 
-    let _ = course;
+    // Return to the tab that was open last, and remember changes so coming back
+    // from a detail lands where you left off.
+    let remembered = ui
+        .course_tab
+        .borrow()
+        .get(&course.id)
+        .cloned()
+        .unwrap_or_else(|| "overview".into());
+    stack.set_visible_child_name(&remembered);
+    {
+        let ui = ui.clone();
+        let id = course.id;
+        stack.connect_visible_child_name_notify(move |s| {
+            if let Some(name) = s.visible_child_name() {
+                ui.course_tab.borrow_mut().insert(id, name.to_string());
+            }
+        });
+    }
+}
+
+/// Make a row open an assignment's detail view.
+fn make_assignment_clickable(
+    ui: &Rc<Ui>,
+    course: &st::Course,
+    a: &st::Assignment,
+    row: &adw::ActionRow,
+) {
+    row.set_activatable(true);
+    let ui = ui.clone();
+    let course = course.clone();
+    let assignment = a.clone();
+    row.connect_activated(move |_| ui.open_assignment(&course, &assignment));
 }
 
 fn add_tab(stack: &adw::ViewStack, icon: &str, name: &str, title: &str, content: gtk::Box) {
@@ -171,7 +203,9 @@ fn build_overview(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
         page.append(&dim("Nothing due in the next month."));
     } else {
         for a in upcoming {
-            page.append(&widgets::assignment_row(a));
+            let row = widgets::assignment_row(a);
+            make_assignment_clickable(ui, course, a, &row);
+            page.append(&row);
         }
     }
 
@@ -246,7 +280,9 @@ fn build_assignments(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
         }
         page.append(&widgets::section(label));
         for a in group {
-            page.append(&widgets::assignment_row(a));
+            let row = widgets::assignment_row(a);
+            make_assignment_clickable(ui, course, a, &row);
+            page.append(&row);
         }
     }
     page
@@ -285,6 +321,20 @@ fn build_modules(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
             row.add_suffix(&widgets::pill(state, class));
         }
         for item in &items {
+            // A `SubHeader` is a text divider inside the module, not a link.
+            if item.item_type.as_deref() == Some("SubHeader") {
+                let label = gtk::Label::new(None);
+                label.set_markup(&format!(
+                    "<b>{}</b>",
+                    gtk::glib::markup_escape_text(&item.title)
+                ));
+                label.set_xalign(0.0);
+                label.set_margin_top(10);
+                label.set_margin_bottom(2);
+                row.add_row(&label);
+                continue;
+            }
+
             let item_row = adw::ActionRow::new();
             item_row.set_title(&gtk::glib::markup_escape_text(&item.title));
             item_row.add_prefix(&gtk::Image::from_icon_name(icon_for_type(
@@ -293,7 +343,13 @@ fn build_modules(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
             if item.completed {
                 item_row.add_suffix(&widgets::pill("done", "ok"));
             }
-            item_row.set_activatable(false);
+            item_row.set_activatable(true);
+            {
+                let ui = ui.clone();
+                let course = course.clone();
+                let item = item.clone();
+                item_row.connect_activated(move |_| ui.open_module_item(&course, &item));
+            }
             row.add_row(&item_row);
         }
         group.add(&row);
@@ -415,11 +471,23 @@ fn build_grades(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
         store.append(&glib::BoxedAnyObject::new(a.clone()));
     }
 
-    let selection = gtk::NoSelection::new(Some(store));
-    let view = gtk::ColumnView::new(Some(selection));
+    let selection = gtk::SingleSelection::new(Some(store));
+    let view = gtk::ColumnView::new(Some(selection.clone()));
     view.set_show_row_separators(true);
     view.set_show_column_separators(false);
     view.set_margin_top(6);
+    {
+        let ui = ui.clone();
+        let course = course.clone();
+        let selection = selection.clone();
+        view.connect_activate(move |_, position| {
+            if let Some(item) = selection.item(position) {
+                if let Some(a) = assignment_of(&item) {
+                    ui.open_assignment(&course, &a);
+                }
+            }
+        });
+    }
 
     view.append_column(&text_column(
         "Name",

@@ -72,8 +72,9 @@ those depends on the UI.
 
 Speaks only HTTP and JSON; it has no storage or UI dependency. It covers every
 read Yunee needs (courses with teachers/term/grades, assignments including the
-student's submission state, announcements, modules + items, folders + files, and
-planner/todo), file downloads, and the student writes listed below.
+student's submission state, announcements, modules + items, folders + files,
+wiki pages, and planner/todo), file downloads, and the student writes listed
+below.
 
 It deliberately fixes three weaknesses of the earlier integration:
 
@@ -93,8 +94,8 @@ ids are parsed tolerantly (Canvas may send numbers or strings) and normalized to
 
 The durable memory of one student: a single SQLite file (rusqlite, bundled, WAL)
 holding courses, assignments, announcements, modules, module items, folders,
-files, planner items, sync bookkeeping, settings, and an FTS5 index over the
-searchable text. There is no tenancy of any kind.
+files, wiki pages, planner items, sync bookkeeping, settings, and an FTS5 index
+over the searchable text. There is no tenancy of any kind.
 
 Everything is headless and unit-tested. The UI and the sync engine are its only
 callers. A `rusqlite::Connection` is `Send` but not `Sync`, so it lives behind a
@@ -122,13 +123,16 @@ Yunee is a single-user local tool, so a personal access token is the appropriate
 mechanism; Yunee is not distributed as a multi-user client.
 
 **v1 Canvas reads:** courses (with teachers, term, grades), assignments including
-submission state, announcements, modules + items, folders + files, planner/todo.
+submission state, announcements, modules + items, folders + files, wiki pages,
+planner/todo.
 
 **v1 Canvas writes (student-only, whatever Canvas documents for students):**
 
 - Assignment submission — `online_text_entry`, `online_url`, and `online_file`
   via the documented **3-step upload flow** (ask Canvas for an upload target, POST
-  the file to it, then attach the returned file id to the submission).
+  the file to it, then attach the returned file id to the submission). *Current
+  status: the detail view lays out the text / URL / file controls and a Submit
+  button, but the button is not wired to Canvas yet — layout only.*
 - Mark a module item done / mark it read.
 - Planner overrides (mark complete / dismiss).
 - Mark an announcement read.
@@ -188,6 +192,23 @@ cargo build --workspace --release
 
 CI builds and tests inside a Fedora container, because Yunee links GTK 4.22 and
 libadwaita 1.9, which are newer than what Ubuntu's repositories carry.
+
+**Development runs beside an installed Flatpak.** A dev build can run without
+fighting the installed app for the single-instance id, reuse an existing profile
+with no duplication, and borrow a Canvas token for the session without saving it:
+
+```bash
+YUNEE_APP_ID=io.github.LyKhoris.Yunee.Dev \
+XDG_DATA_HOME=~/.var/app/io.github.LyKhoris.Yunee/data \
+CANVAS_URL=https://school.instructure.com CANVAS_TOKEN=… \
+    cargo run -p yunee
+```
+
+`YUNEE_DATA_DIR`/`XDG_DATA_HOME` point at the profile; `CANVAS_URL` +
+`CANVAS_TOKEN` override the saved token (handled in `AppState::connection`, never
+written to disk). `yunee --sync-once` uses the same two variables for a headless
+sync. The installed Flatpak keeps its token in its own sandboxed keyring, which a
+host process cannot read.
 
 ## What changed — retired web / SaaS assumptions, do not reintroduce
 

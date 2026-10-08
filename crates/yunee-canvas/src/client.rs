@@ -152,6 +152,20 @@ impl CanvasClient {
         self.get_paged(url).await
     }
 
+    /// List a course's wiki pages. The index carries each page's metadata but
+    /// not its `body` (bodies come from [`get_page`]), so this is cheap.
+    pub async fn list_pages(&self, course_id: &str) -> Result<Vec<Page>> {
+        let mut url = self.endpoint(&format!("/courses/{course_id}/pages"))?;
+        url.query_pairs_mut().append_pair("per_page", "100");
+        self.get_paged(url).await
+    }
+
+    /// One wiki page, including its HTML `body`.
+    pub async fn get_page(&self, course_id: &str, url_or_id: &str) -> Result<Page> {
+        let url = self.endpoint(&format!("/courses/{course_id}/pages/{url_or_id}"))?;
+        self.get_json(url).await
+    }
+
     pub async fn planner_items(
         &self,
         start: Option<&str>,

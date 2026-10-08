@@ -159,6 +159,41 @@ async fn sync_course(
         Err(e) => return Err(friendly(&e, "modules")),
     }
 
+    // Wiki pages. The index gives titles and slugs; each page's HTML body comes
+    // from the show endpoint, fetched only when it is missing or changed, so a
+    // re-sync costs almost nothing.
+    match client.list_pages(&course.id).await {
+        Ok(pages) => {
+            for page in &pages {
+                let key = page
+                    .page_id
+                    .clone()
+                    .or_else(|| page.url.clone())
+                    .unwrap_or_default();
+                let stored = store.get_page(local_id, &key).ok().flatten();
+                let revision = page.updated_at.clone().unwrap_or_default();
+                let body = match &stored {
+                    Some(s) if s.has_body() && s.updated_at == revision => s.body.clone(),
+                    _ => {
+                        let lookup = page.url.clone().unwrap_or_else(|| key.clone());
+                        match client.get_page(&course.id, &lookup).await {
+                            Ok(full) => full.body,
+                            Err(e) if e.is_not_found() => None,
+                            Err(e) if e.is_auth() => return Err(friendly(&e, "pages")),
+                            // Any other failure: keep what we already had.
+                            Err(_) => stored.as_ref().and_then(|s| s.body.clone()),
+                        }
+                    }
+                };
+                if store.upsert_page(&map_page(local_id, page, body)).is_ok() {
+                    counts.pages += 1;
+                }
+            }
+        }
+        Err(e) if e.is_not_found() => {}
+        Err(e) => return Err(friendly(&e, "pages")),
+    }
+
     Ok(())
 }
 
@@ -204,6 +239,31 @@ pub async fn sync_course_files(
     }
 
     Ok(count)
+}
+
+/// Fetch one wiki page by slug/id and store it. Used when a Page is opened but
+/// was never synced — notably in courses whose Pages *index* is disabled, where
+/// `list_pages` 404s while individual pages still load.
+pub async fn fetch_page(
+    store: &Store,
+    connection: &Connection,
+    course_canvas_id: &str,
+    key: &str,
+) -> Result<(), String> {
+    let client = connection.client().map_err(|e| e.to_string())?;
+    let local_id = store
+        .course_local_id(course_canvas_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "this course is not in the local store".to_string())?;
+    let full = client
+        .get_page(course_canvas_id, key)
+        .await
+        .map_err(|e| friendly(&e, "page"))?;
+    let body = full.body.clone();
+    store
+        .upsert_page(&map_page(local_id, &full, body))
+        .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 async fn sync_planner(
@@ -379,6 +439,13 @@ fn map_module_item(
         .and_then(|r| r.completed)
         .or(item.completed)
         .unwrap_or(false);
+    // A Page item's target is its slug (`page_url`); Canvas leaves `content_id`
+    // null for Pages. Keeping the slug in `content_id` makes every item type
+    // routable through one column, with no schema change.
+    let content_id = item.content_id.clone().or_else(|| item.page_url.clone());
+    // An ExternalUrl item's `html_url` is a redirect endpoint, not the link, so
+    // prefer the real external URL it carries.
+    let html_url = item.external_url.clone().or_else(|| item.html_url.clone());
     st::ModuleItem {
         id: 0,
         canvas_id: item.id.clone(),
@@ -386,12 +453,30 @@ fn map_module_item(
         course_id,
         title: item.title.clone().unwrap_or_else(|| "Item".into()),
         item_type: item.item_type.clone(),
-        content_id: item.content_id.clone(),
-        html_url: item.html_url.clone(),
+        content_id,
+        html_url,
         position: item.position,
         completion_requirement: requirement,
         completed,
         updated_at: now.to_string(),
+    }
+}
+
+fn map_page(course_id: st::LocalId, p: &cv::Page, body: Option<String>) -> st::Page {
+    st::Page {
+        id: 0,
+        // Canvas's page id is globally unique; fall back to the slug.
+        canvas_id: p
+            .page_id
+            .clone()
+            .or_else(|| p.url.clone())
+            .unwrap_or_else(|| "page".into()),
+        course_id,
+        page_id: p.page_id.clone(),
+        url: p.url.clone(),
+        title: p.title.clone().unwrap_or_else(|| "Untitled page".into()),
+        body,
+        updated_at: p.updated_at.clone().unwrap_or_default(),
     }
 }
 

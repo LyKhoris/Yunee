@@ -21,7 +21,9 @@ fn main() -> gtk::glib::ExitCode {
     }
 
     let app = adw::Application::builder()
-        .application_id(ui::APP_ID)
+        // A development build can run beside an installed Flatpak, which would
+        // otherwise claim the id and make this instance exit immediately.
+        .application_id(std::env::var("YUNEE_APP_ID").unwrap_or_else(|_| ui::APP_ID.to_string()))
         .build();
     app.connect_activate(|app| {
         ui::build(app);
@@ -31,7 +33,7 @@ fn main() -> gtk::glib::ExitCode {
 
 fn sync_once() -> gtk::glib::ExitCode {
     use gtk::glib::ExitCode;
-    use state::{AppState, Connection};
+    use state::AppState;
 
     let store = match yunee_store::Store::open(&paths::db_path()) {
         Ok(store) => store,
@@ -42,16 +44,9 @@ fn sync_once() -> gtk::glib::ExitCode {
     };
     let state = AppState::new(store);
 
-    let connection = match (std::env::var("CANVAS_URL"), std::env::var("CANVAS_TOKEN")) {
-        (Ok(url), Ok(token)) if !url.trim().is_empty() && !token.trim().is_empty() => {
-            Some(Connection {
-                base_url: url,
-                token,
-            })
-        }
-        _ => state.connection(),
-    };
-    let Some(connection) = connection else {
+    // `CANVAS_URL` + `CANVAS_TOKEN` override the saved connection (handled in
+    // `AppState::connection`).
+    let Some(connection) = state.connection() else {
         eprintln!("yunee: no connection — set CANVAS_URL and CANVAS_TOKEN, or connect in the app");
         return ExitCode::FAILURE;
     };
@@ -59,8 +54,8 @@ fn sync_once() -> gtk::glib::ExitCode {
     let report = runtime::runtime().block_on(sync::sync_all(&state.store, &connection));
     let c = &report.counts;
     println!(
-        "synced: courses={} assignments={} announcements={} modules={} files={} planner={}",
-        c.courses, c.assignments, c.announcements, c.modules, c.files, c.planner
+        "synced: courses={} assignments={} announcements={} modules={} files={} pages={} planner={}",
+        c.courses, c.assignments, c.announcements, c.modules, c.files, c.pages, c.planner
     );
     for error in &report.errors {
         eprintln!("warning: {error}");

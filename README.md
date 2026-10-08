@@ -46,7 +46,10 @@ cargo build --workspace --release
 - Assignments, including the student's submission state (submitted, graded, late,
   missing, excused).
 - Announcements with read tracking.
-- Modules and their items.
+- Modules and their items — clickable, routed by type to an assignment, a wiki
+  page, a file, or an honest "opens on Canvas" view.
+- Wiki pages, read offline (bodies fetched on demand when a course hides its
+  Pages index).
 - Course folders and files, with download to disk.
 - Planner / todo.
 - Local full-text search over everything synced.

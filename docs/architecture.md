@@ -37,6 +37,8 @@ observed). Nothing in the UI calls Canvas directly except best-effort writes.
      `include[]=submission`),
    - announcements (`discussion_topics?only_announcements=true`),
    - modules with their items (`include[]=items`),
+   - wiki pages (the index for titles and slugs, one show request per page for
+     its HTML body),
    - folders and files.
 
    A failure in one course is captured as `"<course>: <error>"` and the loop moves
@@ -73,6 +75,7 @@ reference. There are no tenancy columns.
 | `module_items` | Items within a module, with type, content id, position, the raw completion requirement, and a completed flag. |
 | `folders` | Course file folders, with parent id and full name. |
 | `files` | Course files, with display name, type, size, and the token-bearing Canvas URL (never handed out as a bare link). `local_path` is set once downloaded. |
+| `pages` | Course wiki pages, with the Canvas page id, the `url` slug, and the HTML body — so Pages read offline. |
 | `planner_items` | Planner entries keyed by `type:id:course`, with due date, points, completion and dismissal state. |
 | `sync_state` | Small key/value bookkeeping, notably the last sync timestamp. |
 | `settings` | Non-secret app settings, notably the Canvas base URL. |
@@ -80,7 +83,8 @@ reference. There are no tenancy columns.
 
 A handful of indexes back the queries the sync and UI lean on:
 `idx_assignments_course`, `idx_assignments_due`, `idx_announcements_course`,
-`idx_module_items_module`, `idx_files_course`, `idx_folders_course`.
+`idx_module_items_module`, `idx_files_course`, `idx_folders_course`,
+`idx_pages_course`.
 
 Full-text search is rebuilt wholesale after each sync rather than maintained with
 per-row triggers — cheap at one student's scale, and it guarantees the index

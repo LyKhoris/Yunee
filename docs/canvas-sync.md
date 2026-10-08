@@ -16,6 +16,7 @@ in, then everything under each course, then the planner.
 | Modules + items | `GET /courses/:id/modules` | `include[]=items`. |
 | Folders | `GET /courses/:id/folders` | |
 | Files | `GET /courses/:id/files` | `sort=updated_at&order=desc`. |
+| Wiki pages | `GET /courses/:id/pages` + `.../pages/:url` | The index gives each page's title and slug; its HTML `body` comes from the page's own show request, fetched only when missing or changed. A course can **disable the Pages index** (404 `"That page has been disabled for this course"`) while individual pages still load by slug, so such pages are fetched on demand when opened. |
 | Planner | `GET /planner/items` | 14 days back to 45 days ahead. |
 | File downloads | the URL in a file record | Fetched with the bearer token attached. |
 
@@ -79,6 +80,11 @@ difference never breaks a sync.
 ## Supported student writes
 
 Yunee only performs writes Canvas documents for students on their own account.
+
+> **Not wired up yet.** The assignment detail view lays out the submission
+> controls (text entry, website URL, file upload) and a Submit button, but the
+> button does not call Canvas — it is the layout, not the action. The client
+> methods below exist and are exercised by nothing in the UI yet.
 
 - **Assignment submission**, in all three documented forms:
   - `online_text_entry` — submit a text body;

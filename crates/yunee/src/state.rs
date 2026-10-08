@@ -22,6 +22,17 @@ impl Connection {
     pub fn client(&self) -> Result<CanvasClient> {
         Ok(CanvasClient::new(&self.base_url, &self.token)?)
     }
+
+    /// A connection from `CANVAS_URL` + `CANVAS_TOKEN`, for development and
+    /// scripted runs. Never persisted — the token stays in the environment.
+    pub fn from_env() -> Option<Connection> {
+        let base_url = std::env::var("CANVAS_URL").ok()?;
+        let token = std::env::var("CANVAS_TOKEN").ok()?;
+        if base_url.trim().is_empty() || token.trim().is_empty() {
+            return None;
+        }
+        Some(Connection { base_url, token })
+    }
 }
 
 /// Everything the app shares between the UI thread and background work.
@@ -37,7 +48,12 @@ impl AppState {
     }
 
     /// The configured connection, if the base URL is set and a token exists.
+    /// `CANVAS_URL` + `CANVAS_TOKEN` in the environment take precedence, so a
+    /// development run can borrow a token without saving it.
     pub fn connection(&self) -> Option<Connection> {
+        if let Some(connection) = Connection::from_env() {
+            return Some(connection);
+        }
         let base_url = self
             .store
             .get_setting(KEY_BASE_URL)
@@ -46,6 +62,16 @@ impl AppState {
             .filter(|s| !s.trim().is_empty())?;
         let token = secrets::lookup(&base_url)?;
         Some(Connection { base_url, token })
+    }
+
+    /// The configured Canvas address, even when no usable token is available —
+    /// enough to build "open on Canvas" links.
+    pub fn base_url(&self) -> Option<String> {
+        self.store
+            .get_setting(KEY_BASE_URL)
+            .ok()
+            .flatten()
+            .filter(|s| !s.trim().is_empty())
     }
 
     /// Persist a connection. Returns `true` when the token reached the keyring,

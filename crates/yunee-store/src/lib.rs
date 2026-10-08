@@ -522,6 +522,63 @@ impl Store {
     }
 
     // ----------------------------------------------------------------------
+    // Pages
+    // ----------------------------------------------------------------------
+
+    pub fn upsert_page(&self, p: &Page) -> Result<()> {
+        let conn = self.conn();
+        conn.execute(
+            r#"
+            INSERT INTO pages
+                (canvas_id, course_id, page_id, url, title, body, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            ON CONFLICT(canvas_id) DO UPDATE SET
+                course_id = excluded.course_id,
+                page_id = excluded.page_id,
+                url = excluded.url,
+                title = excluded.title,
+                body = excluded.body,
+                updated_at = excluded.updated_at
+            "#,
+            params![
+                p.canvas_id,
+                p.course_id,
+                p.page_id,
+                p.url,
+                p.title,
+                p.body,
+                p.updated_at,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_pages(&self, course_id: LocalId) -> Result<Vec<Page>> {
+        let conn = self.conn();
+        let mut stmt =
+            conn.prepare("SELECT * FROM pages WHERE course_id = ?1 ORDER BY title COLLATE NOCASE")?;
+        let rows = stmt.query_map(params![course_id], row_to_page)?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+
+    /// Find a page by any of its identifiers — Canvas page id, slug, or the
+    /// stored key. Module items name pages by id while links name them by slug,
+    /// so both have to work.
+    pub fn get_page(&self, course_id: LocalId, key: &str) -> Result<Option<Page>> {
+        let conn = self.conn();
+        Ok(conn
+            .query_row(
+                "SELECT * FROM pages
+                 WHERE course_id = ?1
+                   AND (canvas_id = ?2 OR page_id = ?2 OR url = ?2)
+                 LIMIT 1",
+                params![course_id, key],
+                row_to_page,
+            )
+            .optional()?)
+    }
+
+    // ----------------------------------------------------------------------
     // Planner
     // ----------------------------------------------------------------------
 
@@ -654,6 +711,8 @@ impl Store {
                 SELECT 'announcement', canvas_id, title, body FROM announcements;
             INSERT INTO search (kind, ref_id, title, body)
                 SELECT 'file', canvas_id, display_name, COALESCE(filename, '') FROM files;
+            INSERT INTO search (kind, ref_id, title, body)
+                SELECT 'page', canvas_id, title, COALESCE(body, '') FROM pages;
             "#,
         )?;
         Ok(())
@@ -803,6 +862,19 @@ fn row_to_folder(row: &rusqlite::Row<'_>) -> rusqlite::Result<Folder> {
         parent_id: row.get("parent_id")?,
         name: row.get("name")?,
         full_name: row.get("full_name")?,
+        updated_at: row.get("updated_at")?,
+    })
+}
+
+fn row_to_page(row: &rusqlite::Row<'_>) -> rusqlite::Result<Page> {
+    Ok(Page {
+        id: row.get("id")?,
+        canvas_id: row.get("canvas_id")?,
+        course_id: row.get("course_id")?,
+        page_id: row.get("page_id")?,
+        url: row.get("url")?,
+        title: row.get("title")?,
+        body: row.get("body")?,
         updated_at: row.get("updated_at")?,
     })
 }
@@ -989,6 +1061,34 @@ mod tests {
         let all = store.list_planner_items().unwrap();
         assert_eq!(all.len(), 1);
         assert!(all[0].completed);
+    }
+
+    #[test]
+    fn page_upsert_and_lookup_by_id_or_slug() {
+        let store = Store::open_in_memory().unwrap();
+        let cid = store.upsert_course(&course("101", "ANTH 300")).unwrap();
+        let page = |canvas_id: &str, page_id: Option<&str>, url: &str| Page {
+            id: 0,
+            canvas_id: canvas_id.into(),
+            course_id: cid,
+            page_id: page_id.map(str::to_string),
+            url: Some(url.into()),
+            title: "Syllabus".into(),
+            body: Some("<p>Read chapter 3</p>".into()),
+            updated_at: now_iso(),
+        };
+        store
+            .upsert_page(&page("777", Some("777"), "syllabus"))
+            .unwrap();
+        // Found by page id (how a module item names it)…
+        assert!(store.get_page(cid, "777").unwrap().is_some());
+        // …and by slug (how a link names it).
+        assert!(store.get_page(cid, "syllabus").unwrap().is_some());
+        assert!(store.get_page(cid, "missing").unwrap().is_none());
+
+        store.rebuild_search().unwrap();
+        let hits = store.search("chapter", 10).unwrap();
+        assert!(hits.iter().any(|h| h.kind == "page"));
     }
 
     #[test]

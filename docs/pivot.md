@@ -135,5 +135,15 @@ Only two config values tie it to a provider (`DEEPGRAM_API_KEY`,
   workstation (needs `gtk4-devel`, `libadwaita-devel`, `pkgconf-pkg-config`,
   `cmake`, `gcc`; Rust via rustup). The umbrel sandbox cannot install GTK or a
   toolchain and is not a build target.
+- **2026-10-08 — Course views get real navigation.** Assignments, wiki pages,
+  and files open as *pushed* detail views with a back button, and module items
+  route by their Canvas type: `Assignment` → the assignment, `Page` → the wiki
+  page, `File` → the file, `ExternalUrl` → the browser, `SubHeader` inline, and
+  `Quiz` / `ExternalTool` / `Discussion` → an honest "opens on Canvas" view.
+  Sync now pulls wiki pages — the index for titles and slugs, then each page's
+  body from its show endpoint, fetched only when missing or changed. A course
+  can disable the Pages index (a 404) while its pages still load by slug, so
+  those are fetched on demand when opened. The assignment submission controls
+  (text / URL / file) are laid out but **not wired to Canvas** — layout only.
 - **2026-10-08 — Open:** app id beyond the codename (`io.github.LyKhoris.Yunee`
   provisional); name; UI identity (default: stock libadwaita, no Foxi mascot).

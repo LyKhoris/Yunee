@@ -105,6 +105,18 @@ pub const SCHEMA: &[&str] = &[
     )
     "#,
     r#"
+    CREATE TABLE IF NOT EXISTS pages (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        canvas_id  TEXT NOT NULL UNIQUE,
+        course_id  INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        page_id    TEXT,
+        url        TEXT,
+        title      TEXT NOT NULL,
+        body       TEXT,
+        updated_at TEXT NOT NULL
+    )
+    "#,
+    r#"
     CREATE TABLE IF NOT EXISTS files (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
         canvas_id    TEXT NOT NULL UNIQUE,
@@ -169,4 +181,5 @@ pub const SCHEMA: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_module_items_module ON module_items (module_id)",
     "CREATE INDEX IF NOT EXISTS idx_files_course ON files (course_id)",
     "CREATE INDEX IF NOT EXISTS idx_folders_course ON folders (course_id)",
+    "CREATE INDEX IF NOT EXISTS idx_pages_course ON pages (course_id)",
 ];

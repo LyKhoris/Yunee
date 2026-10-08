@@ -151,7 +151,15 @@ pub struct ModuleItem {
     pub item_type: Option<String>,
     #[serde(default, deserialize_with = "ids::opt_id")]
     pub content_id: Option<String>,
+    /// The API URL of the target (e.g. `/api/v1/courses/1/pages/slug`).
+    pub url: Option<String>,
+    /// Canvas's course-facing URL for the item.
     pub html_url: Option<String>,
+    /// The slug of the page a `Page` item points at; `content_id` is null for
+    /// Pages, so this is how they are identified.
+    pub page_url: Option<String>,
+    /// The link an `ExternalUrl` item points at.
+    pub external_url: Option<String>,
     pub position: Option<i64>,
     pub completion_requirement: Option<CompletionRequirement>,
     /// Canvas reports per-item completion inside `completion_requirement`; this
@@ -198,6 +206,20 @@ pub struct FileEntry {
     #[serde(default, deserialize_with = "ids::opt_int")]
     pub size: Option<i64>,
     pub url: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+/// A Canvas wiki page. `body` is HTML; `url` is the stable per-course slug
+/// that module items and the show endpoint address it by.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Page {
+    #[serde(default, deserialize_with = "ids::opt_id")]
+    pub page_id: Option<String>,
+    pub url: Option<String>,
+    pub title: Option<String>,
+    pub body: Option<String>,
+    pub published: Option<bool>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }

@@ -51,7 +51,7 @@ pub fn render(ui: &Rc<Ui>) {
             let row = widgets::todo_row(&assignment.name, &course.name, &detail);
             row.set_activatable(true);
             let ui2 = ui.clone();
-            row.connect_activated(move |_| ui2.show_course(course.clone()));
+            row.connect_activated(move |_| ui2.open_assignment(&course, &assignment));
             list.append(&row);
         }
         ui.dashboard_page.append(&list);

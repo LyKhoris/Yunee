@@ -292,3 +292,14 @@ pub fn file_row(f: &st::FileEntry) -> (adw::ActionRow, gtk::Button) {
     row.add_suffix(&button);
     (row, button)
 }
+
+/// Canvas HTML rendered as a selectable, wrapped label — bold/italic and line
+/// breaks only, never live markup.
+pub fn rich_text(html: &str) -> gtk::Label {
+    let label = gtk::Label::new(None);
+    label.set_xalign(0.0);
+    label.set_wrap(true);
+    label.set_selectable(true);
+    label.set_markup(&crate::html::to_pango(html));
+    label
+}
