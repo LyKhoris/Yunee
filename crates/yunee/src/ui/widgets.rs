@@ -127,13 +127,14 @@ pub fn empty_state(icon: &str, title: &str, description: &str) -> adw::StatusPag
     page
 }
 
-/// The status pill for an assignment.
+/// The status pill for an assignment. Never shows the grade — the score is a
+/// separate column/field, so a "5" never appears where a status belongs.
 pub fn assignment_pill(a: &st::Assignment) -> gtk::Label {
     if a.excused {
         return pill("excused", "muted");
     }
-    if a.grade.is_some() {
-        return pill(a.grade.as_deref().unwrap_or("graded"), "ok");
+    if a.score.is_some() {
+        return pill("graded", "ok");
     }
     if a.is_submitted() {
         return pill("submitted", "ok");

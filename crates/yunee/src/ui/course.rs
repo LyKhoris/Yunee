@@ -274,6 +274,7 @@ fn build_modules(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
             .list_module_items(module.id)
             .unwrap_or_default();
         let row = adw::ExpanderRow::new();
+        row.set_expanded(true);
         row.set_title(&gtk::glib::markup_escape_text(&module.name));
         row.set_subtitle(&format!("{} items", items.len()));
         if let Some(state) = &module.state {
@@ -365,19 +366,6 @@ fn build_grades(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 8);
     page.append(&heading(&format!("Grades — {}", course.name)));
 
-    if let Some(grade) = &course.current_grade {
-        let line = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-        let total = gtk::Label::new(Some("Total:"));
-        total.add_css_class("muted");
-        line.append(&total);
-        let score = course
-            .current_score
-            .map(|s| format!("{s:.1}%"))
-            .unwrap_or_default();
-        line.append(&widgets::pill(&format!("{grade} {score}"), "info"));
-        page.append(&line);
-    }
-
     let assignments = ui
         .state
         .store
@@ -392,20 +380,51 @@ fn build_grades(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
         return page;
     }
 
+    // A total computed from the graded assignments, so it works even when
+    // Canvas does not hand us a course-level grade.
+    let graded: Vec<&st::Assignment> = assignments.iter().filter(|a| a.score.is_some()).collect();
+    let earned: f64 = graded.iter().filter_map(|a| a.score).sum();
+    let possible: f64 = graded.iter().filter_map(|a| a.points_possible).sum();
+    let percent = if possible > 0.0 {
+        earned / possible * 100.0
+    } else {
+        0.0
+    };
+    let grade = course
+        .current_grade
+        .clone()
+        .unwrap_or_else(|| format!("{percent:.1}%"));
+    let summary = format!(
+        "{grade}  ·  {earned:.0} / {possible:.0} pts  ·  {} of {} graded",
+        graded.len(),
+        assignments.len()
+    );
+    let line = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    let total = gtk::Label::new(Some("Total:"));
+    total.add_css_class("muted");
+    line.append(&total);
+    line.append(&widgets::pill(&summary, "info"));
+    page.append(&line);
+
     let grid = gtk::Grid::new();
-    grid.set_column_spacing(24);
-    grid.set_row_spacing(10);
+    grid.set_column_spacing(20);
+    grid.set_row_spacing(8);
+    grid.set_margin_top(8);
     for (col, title) in ["Name", "Due", "Submitted", "Status", "Score"]
         .iter()
         .enumerate()
     {
         let label = gtk::Label::new(Some(title));
-        label.set_xalign(0.0);
+        label.set_xalign(if col == 4 { 1.0 } else { 0.0 });
         label.add_css_class("section");
         grid.attach(&label, col as i32, 0, 1, 1);
     }
+    let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
+    separator.set_margin_top(2);
+    separator.set_margin_bottom(2);
+    grid.attach(&separator, 0, 1, 5, 1);
     for (i, a) in assignments.iter().enumerate() {
-        let row = i as i32 + 1;
+        let row = i as i32 + 2;
 
         let name = gtk::Label::new(Some(&a.name));
         name.set_xalign(0.0);
@@ -430,10 +449,13 @@ fn build_grades(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
         submitted.set_xalign(0.0);
         grid.attach(&submitted, 2, row, 1, 1);
 
-        grid.attach(&widgets::assignment_pill(a), 3, row, 1, 1);
+        let status = widgets::assignment_pill(a);
+        status.set_halign(gtk::Align::Start);
+        grid.attach(&status, 3, row, 1, 1);
 
         let score = gtk::Label::new(Some(&widgets::score_text(a)));
         score.set_xalign(1.0);
+        score.set_halign(gtk::Align::End);
         grid.attach(&score, 4, row, 1, 1);
     }
     page.append(&grid);
