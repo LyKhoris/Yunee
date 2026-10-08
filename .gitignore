@@ -1,37 +1,33 @@
-# deps
-node_modules/
-.pnp
-.pnp.js
+# --- Rust ---
+/target
+**/*.rs.bk
+*.pdb
 
-# builds
-.next/
-out/
-build/
-dist/
+# --- Flatpak ---
+.flatpak-builder/
+build-dir/
+repo/
+/sources/
+*.flatpak
+*.AppImage
 
-# env — never commit secrets
-.env
-.env.local
-.env.*.local
-!.env.example
-
-# local data (SQLite) and its dumps
+# --- local user data (never committed) ---
 data/
-backups/
 *.db
 *.db-journal
 *.db-wal
+canvas-token
 
-# logs
+# --- env / secrets ---
+.env
+.env.local
+.env.*
+
+# --- logs ---
 *.log
-npm-debug.log*
 
-# editor / OS
+# --- editor / OS ---
 .DS_Store
 .idea/
 .vscode/
-
-# typescript
-*.tsbuildinfo
-.vercel
-.env*
+*.swp

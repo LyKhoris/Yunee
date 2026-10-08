@@ -1,0 +1,48 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/yunee",
+    "crates/yunee-canvas",
+    "crates/yunee-store",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/LyKhoris/Yunee"
+
+[workspace.dependencies]
+# --- shared, headless ---
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+
+# --- async + network ---
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "stream", "rustls"] }
+async-channel = "2"
+
+# --- storage ---
+rusqlite = { version = "0.40", features = ["bundled"] }
+
+# --- GNOME / GTK ---
+# Version features are pinned to what Fedora 44 ships (GTK 4.22, libadwaita 1.9)
+# so the bindings expose the APIs the UI uses without reaching past the runtime.
+gtk4 = { version = "0.11", features = ["v4_22"] }
+libadwaita = { version = "0.9", features = ["v1_9"] }
+# `adw` is just `libadwaita` under the name GNOME code uses.
+adw = { package = "libadwaita", version = "0.9", features = ["v1_9"] }
+
+# --- desktop integration ---
+libsecret = "0.9"
+notify-rust = "4"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

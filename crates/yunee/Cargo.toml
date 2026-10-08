@@ -1,0 +1,31 @@
+[package]
+name = "yunee"
+description = "A better Canvas client for GNOME — local, single-user, offline-first."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "yunee"
+path = "src/main.rs"
+
+[dependencies]
+yunee-canvas = { path = "../yunee-canvas" }
+yunee-store = { path = "../yunee-store" }
+
+gtk4.workspace = true
+adw.workspace = true
+
+tokio.workspace = true
+reqwest.workspace = true
+async-channel.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+url.workspace = true
+anyhow.workspace = true
+
+libsecret.workspace = true
+notify-rust.workspace = true
