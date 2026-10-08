@@ -29,9 +29,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder
 
-      - name: Add Flathub
+      - name: Add Flathub (user)
         run: |
-          sudo flatpak remote-add --if-not-exists flathub \
+          flatpak remote-add --user --if-not-exists flathub \
             https://flathub.org/repo/flathub.flatpakrepo
 
       # The Flatpak build sandbox has no network, so crates must be vendored.
