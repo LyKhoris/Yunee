@@ -8,6 +8,7 @@
 build-dir/
 repo/
 /sources/
+vendor/
 *.flatpak
 *.AppImage
 

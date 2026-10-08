@@ -48,15 +48,21 @@ modules:
       append-path: /usr/lib/sdk/rust-stable/bin
       env:
         CARGO_HOME: /run/build/yunee/cargo
+        CARGO_NET_OFFLINE: 'true'
     build-commands:
-      - cargo build --release --locked --manifest-path Cargo.toml
+      # The build sandbox has no network, so crates are vendored (see
+      # `cargo vendor vendor`, run before building — and in CI).
+      - mkdir -p .cargo
+      - printf '[source.crates-io]\nreplace-with = "vendored-sources"\n\n[source.vendored-sources]\ndirectory = "vendor"\n' > .cargo/config.toml
+      - cargo build --release --locked --offline --manifest-path Cargo.toml
       - install -Dm755 target/release/yunee /app/bin/yunee
       - install -Dm644 data/io.github.LyKhoris.Yunee.desktop /app/share/applications/io.github.LyKhoris.Yunee.desktop
       - install -Dm644 data/io.github.LyKhoris.Yunee.metainfo.xml /app/share/metainfo/io.github.LyKhoris.Yunee.metainfo.xml
       - install -Dm644 data/io.github.LyKhoris.Yunee.svg /app/share/icons/hicolor/scalable/apps/io.github.LyKhoris.Yunee.svg
     sources:
-      # The Cargo workspace (Cargo.toml, Cargo.lock, crates/, data/). Paths are
-      # relative to this manifest, which lives in flatpak/.
+      # The Cargo workspace (Cargo.toml, Cargo.lock, crates/, data/) plus the
+      # vendored crates in vendor/. Paths are relative to this manifest, which
+      # lives in flatpak/.
       - type: dir
         path: ..
         skip:

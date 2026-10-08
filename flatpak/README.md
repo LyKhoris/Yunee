@@ -15,9 +15,16 @@ The build uses `org.gnome.Platform//51` (GTK 4.24 / libadwaita 1.10) and the
 `org.freedesktop.Sdk.Extension.rust-stable` SDK extension; `flatpak-builder
 --install-deps-from=flathub` fetches them on first run.
 
+The build sandbox has **no network**, so crates must be vendored first:
+
+```bash
+cargo vendor vendor          # writes vendor/ (gitignored)
+```
+
 ## Build and install (local)
 
 ```bash
+cargo vendor vendor
 flatpak-builder --user --install --force-clean \
     --install-deps-from=flathub \
     build-dir flatpak/io.github.LyKhoris.Yunee.yml
@@ -28,6 +35,7 @@ flatpak run io.github.LyKhoris.Yunee
 ## Build a single-file bundle (for a release)
 
 ```bash
+cargo vendor vendor
 flatpak-builder --user --force-clean \
     --install-deps-from=flathub \
     --repo=repo build-dir flatpak/io.github.LyKhoris.Yunee.yml
@@ -44,6 +52,25 @@ flatpak install yunee-0.1.0-beta.1.flatpak
 Releases are cut by pushing a tag (`v*`); `.github/workflows/release.yml`
 builds the bundle and attaches it to the GitHub release.
 
+## Automatic updates (GitHub Pages remote)
+
+A release also publishes a Flatpak **repository** to GitHub Pages, so an
+installed copy updates itself with `flatpak update` and GNOME Software. Add the
+remote once:
+
+```bash
+flatpak remote-add --if-not-exists --no-gpg-verify yunee \
+    https://lykhoris.github.io/Yunee/yunee.flatpakrepo
+
+flatpak install yunee io.github.LyKhoris.Yunee
+```
+
+From then on `flatpak update` keeps it current.
+
+The repository is **unsigned** for now, hence `--no-gpg-verify`. Signing it with
+a GPG key (stored as a CI secret) removes that flag; publishing to Flathub would
+make it unnecessary, since everyone already has the Flathub remote.
+
 ## Permissions
 
 | Permission | Why |
@@ -54,10 +81,14 @@ builds the bundle and attaches it to the GitHub release.
 | `--talk-name=org.freedesktop.secrets` | The GNOME keyring, where the Canvas token is stored |
 | `--filesystem=xdg-download` | Saving files downloaded from Canvas |
 
-## Offline builds (Flathub)
+## Offline builds
 
-This manifest fetches crates from crates.io during the build, which is fine for
-local and GitHub releases. Submitting to Flathub requires vendoring the crates
-into `flatpak/cargo-sources.json` (via
+The manifest builds offline from the vendored crates in `vendor/` (written by
+`cargo vendor`, gitignored, regenerated in CI). That is what the Flatpak build
+sandbox requires — it has no network.
+
+For **Flathub**, the convention is instead to vendor into a
+`cargo-sources.json` (via
 [flatpak-cargo-generator.py](https://github.com/flathub/flatpak-builder-tools))
-and building with `CARGO_NET_OFFLINE=true`. That step is not done yet.
+and list it as a source, rather than committing a 500 MB `vendor/` directory.
+That conversion is the remaining step before submitting to Flathub.
