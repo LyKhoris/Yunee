@@ -65,8 +65,8 @@ pub fn render(ui: &Rc<Ui>) {
         None => {
             let (row, button) = row_button(
                 "Not connected",
-                "Add your Canvas address and an access token",
-                "Connect…",
+                "Choose your school and add an access token",
+                "Connect",
                 "suggested-action",
             );
             {
