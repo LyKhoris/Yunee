@@ -347,7 +347,7 @@ impl Ui {
                     chips.append(&widgets::count_chip("document-edit-symbolic", open));
                 }
                 if unread > 0 {
-                    chips.append(&widgets::count_chip("chat-bubbles-symbolic", unread));
+                    chips.append(&widgets::count_chip("mail-unread-symbolic", unread));
                 }
                 row.add_suffix(&chips);
             }

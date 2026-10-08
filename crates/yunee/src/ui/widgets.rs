@@ -40,13 +40,14 @@ pub fn css() -> String {
 /* Course colour dot in the course list. */
 .course-dot {{ border-radius: 999px; min-width: 10px; min-height: 10px; }}
 
-/* Status pills use libadwaita's semantic colours. */
-.pill {{ border-radius: 10px; padding: 0 8px; font-size: 0.72rem; font-weight: 700; }}
-.pill.ok     {{ background: @success_bg_color; color: @success_fg_color; }}
-.pill.warn   {{ background: @warning_bg_color; color: @warning_fg_color; }}
-.pill.danger {{ background: @error_bg_color;   color: @error_fg_color; }}
-.pill.info   {{ background: @accent_bg_color;  color: @accent_fg_color; }}
-.pill.muted  {{ background: alpha(currentColor, 0.12); }}
+/* Status pills: a soft tint of the semantic colour with matching text, rather
+   than a loud filled block. */
+.pill {{ border-radius: 999px; padding: 1px 10px; font-size: 0.72rem; font-weight: 600; }}
+.pill.ok     {{ background: alpha(@success_color, 0.16); color: @success_color; }}
+.pill.warn   {{ background: alpha(@warning_color, 0.18); color: @warning_color; }}
+.pill.danger {{ background: alpha(@error_color, 0.16);   color: @error_color; }}
+.pill.info   {{ background: alpha(@accent_color, 0.16);  color: @accent_color; }}
+.pill.muted  {{ background: alpha(currentColor, 0.10); }}
 
 {dots}
 "#
@@ -202,25 +203,16 @@ pub fn assignment_row(a: &st::Assignment) -> adw::ActionRow {
     let row = adw::ActionRow::new();
     row.set_title(&gtk::glib::markup_escape_text(&a.name));
 
+    // The status lives in the trailing pill; the subtitle carries due date and
+    // score so the two don't repeat "missing / missing".
     let mut bits: Vec<String> = Vec::new();
-    if a.is_submitted() {
-        bits.push(if a.grade.is_some() {
-            "Graded".into()
-        } else {
-            "Submitted".into()
-        });
-    } else if a.missing {
-        bits.push("Missing".into());
-    } else if a.due_at.is_some() {
-        bits.push("Upcoming".into());
+    if let Some(due) = &a.due_at {
+        bits.push(format!("Due {}", crate::format::due_label(due)));
     } else {
         bits.push("No due date".into());
     }
-    if let Some(due) = &a.due_at {
-        bits.push(format!("Due {}", crate::format::due_label(due)));
-    }
     bits.push(score_text(a));
-    row.set_subtitle(&bits.join("  |  "));
+    row.set_subtitle(&bits.join("  ·  "));
 
     row.add_prefix(&gtk::Image::from_icon_name("document-edit-symbolic"));
     row.add_suffix(&assignment_pill(a));

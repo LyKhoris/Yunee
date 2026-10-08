@@ -19,16 +19,41 @@ pub fn open(ui: &Rc<Ui>, course: st::Course) {
 
     let stack = adw::ViewStack::new();
     stack.set_vexpand(true);
-    add_tab(&stack, "overview", "Overview", build_overview(ui, &course));
     add_tab(
         &stack,
+        "view-grid-symbolic",
+        "overview",
+        "Overview",
+        build_overview(ui, &course),
+    );
+    add_tab(
+        &stack,
+        "document-edit-symbolic",
         "assignments",
         "Assignments",
         build_assignments(ui, &course),
     );
-    add_tab(&stack, "modules", "Modules", build_modules(ui, &course));
-    add_tab(&stack, "files", "Files", build_files(ui, &course));
-    add_tab(&stack, "grades", "Grades", build_grades(ui, &course));
+    add_tab(
+        &stack,
+        "view-list-symbolic",
+        "modules",
+        "Modules",
+        build_modules(ui, &course),
+    );
+    add_tab(
+        &stack,
+        "folder-symbolic",
+        "files",
+        "Files",
+        build_files(ui, &course),
+    );
+    add_tab(
+        &stack,
+        "starred-symbolic",
+        "grades",
+        "Grades",
+        build_grades(ui, &course),
+    );
 
     let switcher = adw::ViewSwitcher::new();
     switcher.set_policy(adw::ViewSwitcherPolicy::Wide);
@@ -43,7 +68,7 @@ pub fn open(ui: &Rc<Ui>, course: st::Course) {
     let _ = course;
 }
 
-fn add_tab(stack: &adw::ViewStack, name: &str, title: &str, content: gtk::Box) {
+fn add_tab(stack: &adw::ViewStack, icon: &str, name: &str, title: &str, content: gtk::Box) {
     content.set_margin_top(20);
     content.set_margin_bottom(28);
     content.set_margin_start(24);
@@ -53,7 +78,8 @@ fn add_tab(stack: &adw::ViewStack, name: &str, title: &str, content: gtk::Box) {
         .vexpand(true)
         .child(&content)
         .build();
-    stack.add_titled(&scrolled, Some(name), title);
+    let page = stack.add_titled(&scrolled, Some(name), title);
+    page.set_icon_name(Some(icon));
 }
 
 fn heading(text: &str) -> gtk::Label {
@@ -274,7 +300,7 @@ fn build_modules(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
 fn icon_for_type(item_type: Option<&str>) -> &'static str {
     match item_type.unwrap_or("") {
         "Assignment" => "document-edit-symbolic",
-        "Quiz" => "emblem-question-symbolic",
+        "Quiz" => "dialog-question-symbolic",
         "File" | "Page" => "text-x-generic-symbolic",
         "ExternalUrl" | "ExternalTool" => "web-browser-symbolic",
         _ => "view-list-symbolic",
@@ -359,7 +385,7 @@ fn build_grades(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
         .unwrap_or_default();
     if assignments.is_empty() {
         page.append(&widgets::empty_state(
-            "emblem-documents-symbolic",
+            "view-list-symbolic",
             "No grades",
             "Nothing has been graded in this course yet.",
         ));
