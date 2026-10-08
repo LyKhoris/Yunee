@@ -1,0 +1,67 @@
+# Flatpak manifest for Yunee — a local, single-user Canvas LMS client for GNOME.
+#
+# Build and install for the current user:
+#
+#   flatpak-builder --user --install --force-clean build-dir \
+#       flatpak/io.github.LyKhoris.Yunee.yml
+#
+# `flatpak/cargo-sources.json` is generated from Cargo.lock; see
+# flatpak/README.md for how to (re)generate it. The build fails until it exists.
+#
+# Runtime: org.gnome.Platform//51 is the newest GNOME runtime on Flathub
+# (`flatpak remote-ls flathub | grep org.gnome.Platform | tail -5`). It ships
+# GTK 4.24 and libadwaita 1.10, which satisfy the >= 4.22 / >= 1.9 features that
+# Cargo.toml pins. The development host (Fedora 44) carries GTK 4.22 /
+# libadwaita 1.9, which corresponds to the GNOME 50 runtime; drop both
+# `runtime-version` and `sdk` to '50' together if that exact baseline is needed.
+
+app-id: io.github.LyKhoris.Yunee
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: yunee
+
+finish-args:
+  # Display
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --device=dri
+  # Canvas syncing over HTTPS
+  - --share=network
+  # Desktop notifications and the GNOME keyring (Canvas personal access token)
+  - --talk-name=org.freedesktop.notifications
+  - --talk-name=org.freedesktop.secrets
+  # Saving files downloaded from Canvas
+  - --filesystem=xdg-download
+
+modules:
+  - name: yunee
+    buildsystem: simple
+    build-options:
+      # rust-stable is an SDK extension, not on PATH by default.
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/yunee/cargo
+        CARGO_NET_OFFLINE: 'true'
+    build-commands:
+      - cargo build --release --offline --manifest-path Cargo.toml
+      - install -Dm755 target/release/yunee /app/bin/yunee
+      - install -Dm644 data/io.github.LyKhoris.Yunee.desktop /app/share/applications/io.github.LyKhoris.Yunee.desktop
+      - install -Dm644 data/io.github.LyKhoris.Yunee.metainfo.xml /app/share/metainfo/io.github.LyKhoris.Yunee.metainfo.xml
+      - install -Dm644 data/io.github.LyKhoris.Yunee.svg /app/share/icons/hicolor/scalable/apps/io.github.LyKhoris.Yunee.svg
+    sources:
+      # The Cargo workspace (Cargo.toml, Cargo.lock, crates/, data/). Paths are
+      # relative to this manifest, which lives in flatpak/.
+      - type: dir
+        path: ..
+        skip:
+          - .git
+          - target
+          - build-dir
+          - repo
+          - .flatpak-builder
+      # A source list (JSON) generated from Cargo.lock. See README.md.
+      - cargo-sources.json

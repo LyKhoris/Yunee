@@ -12,7 +12,6 @@ repo/
 *.AppImage
 
 # --- local user data (never committed) ---
-data/
 *.db
 *.db-journal
 *.db-wal

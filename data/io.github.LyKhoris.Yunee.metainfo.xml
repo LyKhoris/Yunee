@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.LyKhoris.Yunee</id>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Yunee</name>
+  <summary>A better Canvas client for GNOME</summary>
+  <developer_name>LyKhoris</developer_name>
+
+  <description>
+    <p>
+      Yunee is a local, single-user client for Canvas LMS. It syncs your
+      courses, assignments and their submission state, announcements, modules,
+      files, and planner into a local SQLite database, so the app is fast and
+      works offline. The network is touched only by the sync engine.
+    </p>
+    <p>
+      Nothing is hosted and nothing is shared: you sign in with your own Canvas
+      personal access token, stored in the GNOME keyring, and your data stays on
+      your machine. There is no account to create and no server in between.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.LyKhoris.Yunee.desktop</launchable>
+
+  <url type="homepage">https://github.com/LyKhoris/Yunee</url>
+  <url type="bugtracker">https://github.com/LyKhoris/Yunee/issues</url>
+
+  <categories>
+    <category>Network</category>
+    <category>Education</category>
+  </categories>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-10-08">
+      <description>
+        <p>
+          First release: Canvas courses, assignments, announcements, modules,
+          files, and the planner, synced into local SQLite.
+        </p>
+      </description>
+    </release>
+  </releases>
+</component>
