@@ -97,9 +97,14 @@ pub fn present(
         "Opens Canvas → Account → Settings → Approved Integrations",
     ));
 
-    // The link above is the navigation; this only says what to do once there.
+    // The link handles navigation; this covers the form that opens next.
     let hint = gtk::Label::new(None);
-    hint.set_markup("Then scroll down to the <b>New Access Token</b> button.");
+    hint.set_markup(
+        "Then, on that page:\n\
+         1. <b>Purpose</b> — anything, e.g. Yunee\n\
+         2. <b>Expiration date</b> and <b>time</b> — up to 90 days\n\
+         3. <b>Generate Token</b>, then copy it and paste it above",
+    );
     hint.set_xalign(0.0);
     hint.set_wrap(true);
     hint.add_css_class("muted");
