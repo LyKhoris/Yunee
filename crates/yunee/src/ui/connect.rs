@@ -85,9 +85,21 @@ pub fn present(
     token_group.set_title("Access");
     token_group.add(&token);
 
+    // A shortcut to the page where a student creates a token. The URL follows
+    // the chosen school, so it is filled in once the school is resolved.
+    let token_link = gtk::LinkButton::with_label(
+        "https://canvas.instructure.com/profile/settings",
+        "Get a token from Canvas settings",
+    );
+    token_link.set_halign(gtk::Align::Start);
+    token_link.set_sensitive(false);
+    token_link.set_tooltip_text(Some(
+        "Opens Canvas → Account → Settings → Approved Integrations",
+    ));
+
     let hint = gtk::Label::new(Some(
-        "In Canvas: Account → Settings → New Access Token. Yunee keeps the token on \
-         this machine and only ever sends it to your own Canvas server.",
+        "Create one under Account → Settings → New Access Token. Yunee keeps the token \
+         on this machine and only ever sends it to your own Canvas server.",
     ));
     hint.set_xalign(0.0);
     hint.set_wrap(true);
@@ -109,6 +121,7 @@ pub fn present(
     content.set_margin_end(18);
     content.append(&school_group);
     content.append(&token_group);
+    content.append(&token_link);
     content.append(&hint);
     content.append(&error);
     content.append(&spinner);
@@ -134,6 +147,8 @@ pub fn present(
         school.set_text(base);
         suppress.set(false);
         *selected.borrow_mut() = Some(base.clone());
+        token_link.set_uri(&format!("{base}/profile/settings"));
+        token_link.set_sensitive(true);
     }
 
     {
@@ -153,6 +168,7 @@ pub fn present(
         let suppress = suppress.clone();
         let error = error.clone();
         let spinner = spinner.clone();
+        let token_link = token_link.clone();
         Rc::new(move |query: String| {
             let query = query.trim().to_string();
             error.set_visible(false);
@@ -173,6 +189,8 @@ pub fn present(
                         suppress.set(true);
                         school.set_text(&base);
                         suppress.set(false);
+                        token_link.set_uri(&format!("{base}/profile/settings"));
+                        token_link.set_sensitive(true);
                         *selected.borrow_mut() = Some(base);
                     }
                     Err(e) => {
@@ -199,6 +217,7 @@ pub fn present(
             let suppress = suppress.clone();
             let error = error.clone();
             let spinner = spinner.clone();
+            let token_link = token_link.clone();
             glib::MainContext::default().spawn_local(async move {
                 spinner.stop();
                 spinner.set_visible(false);
@@ -216,11 +235,14 @@ pub fn present(
                             let school = school.clone();
                             let suppress = suppress.clone();
                             let popover = popover.clone();
+                            let token_link = token_link.clone();
                             let domain = m.domain.clone();
                             row.connect_activated(move |_| {
                                 suppress.set(true);
                                 school.set_text(&domain);
                                 suppress.set(false);
+                                token_link.set_uri(&format!("https://{domain}/profile/settings"));
+                                token_link.set_sensitive(true);
                                 *selected.borrow_mut() = Some(domain.clone());
                                 popover.popdown();
                             });
