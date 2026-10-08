@@ -52,29 +52,19 @@ flatpak install yunee-0.1.0-beta.1.flatpak
 Releases are cut by pushing a tag (`v*`); `.github/workflows/release.yml`
 builds the bundle and attaches it to the GitHub release.
 
-## Distribution (private)
+## Updates
 
-Nothing about Yunee is public: the source repo is private, and there is no
-Flathub or GitHub Pages listing. The `.flatpak` bundle attached to a (private)
-GitHub release is only visible to collaborators.
+There is **no Flatpak repository and no update check**. Each release carries the
+`.flatpak` bundle as an asset, and **Settings → Updates** has a *Latest release*
+button that opens the releases page on GitHub in the browser. Download the newer
+bundle there and install it:
 
-Because a private repo cannot serve a Flatpak remote (flatpak cannot
-authenticate to it), **automatic updates have one home: your own machine.**
-Two options:
+```bash
+flatpak install --user ./yunee-<version>.flatpak
+```
 
-- **Build and install locally** (above). Update by rebuilding.
-- **A private Flatpak repo on your own host** — e.g. on the Umbrel, reachable
-  over Tailscale. Build with `--repo=repo`, publish `repo/` and a
-  `yunee.flatpakrepo` file, and add it once:
-
-  ```bash
-  flatpak remote-add --if-not-exists --no-gpg-verify yunee \
-      http://<your-host>/yunee.flatpakrepo
-  ```
-
-  `flatpak update` then keeps every device on the tailnet current. (Over plain
-  HTTP this must be `--no-gpg-verify`; a TLS cert or a GPG-signed repo removes
-  that flag.)
+(The app does not call the GitHub API: the repository is private, so a check
+would need credentials the app does not ask for.)
 
 ## Permissions
 

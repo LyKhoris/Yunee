@@ -25,6 +25,9 @@ use crate::ui::{connect, course, dashboard, settings, widgets};
 /// The app's reverse-DNS identity.
 pub const APP_ID: &str = "io.github.LyKhoris.Yunee";
 
+/// Where to send someone who wants the latest build.
+pub const RELEASES_URL: &str = "https://github.com/LyKhoris/Yunee/releases/latest";
+
 /// The live UI, shared between widgets through `Rc`.
 pub struct Ui {
     pub(crate) state: Arc<AppState>,
@@ -400,6 +403,12 @@ impl Ui {
             ui.sync_now();
         });
         connect::present(&self.window, self.state.clone(), existing, on_connected);
+    }
+
+    /// Open a URL in the user's default browser.
+    pub(crate) fn open_url(&self, url: &str) {
+        let launcher = gtk::UriLauncher::new(url);
+        launcher.launch(Some(&self.window), None::<&gio::Cancellable>, |_| {});
     }
 
     pub(crate) fn show_about(&self) {

@@ -6,7 +6,7 @@ use adw::prelude::*;
 use gtk4 as gtk;
 
 use crate::format;
-use crate::ui::app::Ui;
+use crate::ui::app::{RELEASES_URL, Ui};
 use crate::ui::widgets;
 
 /// Render the settings page into the shared container.
@@ -103,13 +103,35 @@ pub fn render(ui: &Rc<Ui>) {
     sync_group.add(&row);
     ui.settings_page.append(&sync_group);
 
+    // --- Updates ---
+    let updates = adw::PreferencesGroup::new();
+    updates.set_title("Updates");
+    updates.add(
+        &adw::ActionRow::builder()
+            .title("Version")
+            .subtitle(concat!("Yunee ", env!("CARGO_PKG_VERSION")))
+            .build(),
+    );
+    let (release_row, release_button) = row_button(
+        "Latest release",
+        "Opens the releases page on GitHub in your browser",
+        "Open GitHub",
+        "flat",
+    );
+    {
+        let ui = ui.clone();
+        release_button.connect_clicked(move |_| ui.open_url(RELEASES_URL));
+    }
+    updates.add(&release_row);
+    ui.settings_page.append(&updates);
+
     // --- About ---
     let about = adw::PreferencesGroup::new();
     about.set_title("About");
     about.add(
         &adw::ActionRow::builder()
             .title("Yunee")
-            .subtitle(concat!("version ", env!("CARGO_PKG_VERSION")))
+            .subtitle("A local, single-user Canvas client for GNOME")
             .build(),
     );
     about.add(
