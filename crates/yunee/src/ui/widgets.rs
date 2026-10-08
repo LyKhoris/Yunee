@@ -1,15 +1,16 @@
-//! Shared view pieces, styled after Canvas.
+//! Shared view pieces.
 //!
-//! Canvas's look here: a dark navy global rail, white content on a light page,
-//! course "cards" with a per-course accent colour, and status pills. GTK is not
-//! the web, so this is a faithful adaptation of the layout and palette rather
-//! than a pixel copy.
+//! Colour policy: the app follows the user's GTK/libadwaita theme. The only
+//! explicit colours are the per-course accent that Canvas gives each course
+//! (the professor's colour) and the semantic status pills, which use
+//! libadwaita's theme-aware named colours. Nothing else is hardcoded, so light
+//! and dark themes, and custom themes, all render legibly.
 
 use adw::prelude::*;
 use gtk4 as gtk;
 use yunee_store as st;
 
-/// Course accent palette — the coloured top strip and title on a course card.
+/// Course accent palette — used for the card strip and the little dot.
 pub const ACCENTS: [&str; 8] = [
     "#C0392B", // red
     "#8E44AD", // purple
@@ -21,61 +22,40 @@ pub const ACCENTS: [&str; 8] = [
     "#B03A2E", // brick
 ];
 
-/// The stylesheet. Most of the visual identity of the rewrite lives here.
+/// The stylesheet. Deliberately small: it never overrides theme colours except
+/// the course accents and the semantic pills.
 pub fn css() -> String {
     let mut accents = String::new();
     for (i, color) in ACCENTS.iter().enumerate() {
-        accents.push_str(&format!(
-            ".accent-{i} {{ background: {color}; }}\n.ct-{i} {{ color: {color}; }}\n.accent-border-{i} {{ border-left: 4px solid {color}; }}\n"
-        ));
+        accents.push_str(&format!(".accent-strip-{i} {{ background: {color}; }}\n"));
     }
     format!(
         r#"
-/* --- the global rail --- */
-.rail {{ background: #00274C; }}
-.rail-label {{ color: #e9eef4; font-size: 11px; font-weight: 600; }}
-.rail-icon {{ color: #e9eef4; }}
-.rail-title {{ color: #ffffff; font-weight: 700; }}
-.rail listbox {{ background: transparent; }}
-.rail row {{ background: transparent; border-radius: 6px; margin: 2px 6px; }}
-.rail row:selected {{ background: rgba(255,255,255,0.14); }}
+/* Typography only — no colours, so the theme's foreground applies. */
+.page-title {{ font-size: 1.6rem; font-weight: 800; }}
+.section {{ font-weight: 700; }}
+.muted {{ opacity: 0.7; }}
+.tiny {{ font-size: 0.8rem; }}
+.railpanel-title {{ font-weight: 700; }}
+.rail-label {{ font-size: 11px; font-weight: 600; }}
+.rail-title {{ font-weight: 800; font-size: 1.05rem; }}
 
-/* --- page chrome --- */
-.page-title {{ font-size: 24px; font-weight: 400; color: #273540; }}
-.section {{ font-weight: 700; color: #273540; }}
-.muted {{ color: #6b7785; }}
-.tiny {{ font-size: 0.8rem; color: #6b7785; }}
-
-/* --- cards --- */
-.card {{
-    background: #ffffff;
-    border: 1px solid #d7dbe0;
-    border-radius: 6px;
-    padding: 0;
+/* Course card: theme card background + border; the strip carries the colour. */
+.course-card {{
+    background: @card_bg_color;
+    border: 1px solid @borders;
+    border-radius: 8px;
 }}
-.card:hover {{ border-color: #b9c0c8; }}
 .card-body {{ padding: 10px 12px 12px 12px; }}
 .card-title {{ font-weight: 700; font-size: 14px; }}
-.card-name {{ color: #273540; }}
 
-/* --- pills --- */
+/* Status pills use libadwaita's semantic colours. */
 .pill {{ border-radius: 10px; padding: 0 8px; font-size: 0.72rem; font-weight: 700; }}
-.pill.ok     {{ background: #e3f2e9; color: #1E8449; }}
-.pill.warn   {{ background: #fdf0dc; color: #9a6a00; }}
-.pill.danger {{ background: #fbe6e6; color: #c0392b; }}
-.pill.muted  {{ background: #eceef1; color: #5e6b78; }}
-.pill.info   {{ background: #e4eef7; color: #1f6fb2; }}
-
-/* --- rows --- */
-.row-title {{ font-weight: 700; color: #273540; }}
-.row-sub {{ font-size: 0.85rem; color: #6b7785; }}
-.left-accent {{ border-left: 4px solid #1E8449; }}
-.course-nav {{ background: #f7f8fa; border-right: 1px solid #e2e5e9; }}
-.course-nav row {{ background: transparent; }}
-.course-nav row:selected {{ background: #e8eaed; }}
-
-/* --- dashboard right rail --- */
-.railpanel-title {{ font-weight: 700; color: #273540; font-size: 0.95rem; }}
+.pill.ok     {{ background: @success_bg_color;   color: @success_fg_color; }}
+.pill.warn   {{ background: @warning_bg_color;   color: @warning_fg_color; }}
+.pill.danger {{ background: @error_bg_color;     color: @error_fg_color; }}
+.pill.info   {{ background: @accent_bg_color;    color: @accent_fg_color; }}
+.pill.muted  {{ background: alpha(currentColor, 0.12); }}
 
 {accents}
 "#
@@ -202,14 +182,15 @@ pub fn count_chip(icon: &str, count: usize) -> gtk::Box {
 pub fn course_card(course: &st::Course, announcements: usize, assignments: usize) -> gtk::Button {
     let index = accent_index(&course.canvas_id);
     let card = gtk::Button::new();
-    card.add_css_class("card");
+    card.add_css_class("flat");
+    card.add_css_class("course-card");
     card.set_hexpand(true);
 
     let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
 
     let strip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     strip.set_height_request(6);
-    strip.add_css_class(&format!("accent-{index}"));
+    strip.add_css_class(&format!("accent-strip-{index}"));
     outer.append(&strip);
 
     let body = gtk::Box::new(gtk::Orientation::Vertical, 2);
@@ -219,7 +200,6 @@ pub fn course_card(course: &st::Course, announcements: usize, assignments: usize
     name.set_xalign(0.0);
     name.set_ellipsize(gtk::pango::EllipsizeMode::End);
     name.add_css_class("card-title");
-    name.add_css_class(&format!("ct-{index}"));
     body.append(&name);
 
     let title = gtk::Label::new(Some(&course.title));
@@ -227,12 +207,12 @@ pub fn course_card(course: &st::Course, announcements: usize, assignments: usize
     title.set_wrap(true);
     title.set_lines(2);
     title.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    title.add_css_class("card-name");
     body.append(&title);
 
     let term = gtk::Label::new(Some(course.term.as_deref().unwrap_or("")));
     term.set_xalign(0.0);
     term.add_css_class("tiny");
+    term.add_css_class("muted");
     term.set_margin_top(4);
     body.append(&term);
 
@@ -259,7 +239,7 @@ pub fn todo_row(title: &str, course: &str, detail: &str) -> adw::ActionRow {
     row
 }
 
-/// An assignment row: title bold, "status | Due … | score" beneath.
+/// An assignment row: title, then "status | Due … | score" beneath.
 pub fn assignment_row(a: &st::Assignment) -> adw::ActionRow {
     let row = adw::ActionRow::new();
     row.set_title(&gtk::glib::markup_escape_text(&a.name));
@@ -306,7 +286,7 @@ pub fn announcement_row(a: &st::Announcement, course_name: &str) -> adw::Expande
     }
     row.set_subtitle(&sub);
     if a.is_unread() {
-        row.add_suffix(&pill("new", "ok"));
+        row.add_suffix(&pill("new", "info"));
     }
 
     let body = gtk::Label::new(None);

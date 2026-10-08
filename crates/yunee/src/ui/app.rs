@@ -73,7 +73,6 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         rail.append(&rail_row(icon, label));
     }
     let rail_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    rail_box.add_css_class("rail");
     rail_box.set_width_request(88);
     rail_box.append(&rail);
     let rail_page = adw::NavigationPage::new(&rail_box, "Yunee");
@@ -234,7 +233,6 @@ fn rail_row(icon: &str, text: &str) -> gtk::ListBoxRow {
     column.set_halign(gtk::Align::Center);
     let image = gtk::Image::from_icon_name(icon);
     image.set_pixel_size(20);
-    image.add_css_class("rail-icon");
     let label = gtk::Label::new(Some(text));
     label.add_css_class("rail-label");
     column.append(&image);
