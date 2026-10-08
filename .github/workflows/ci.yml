@@ -15,9 +15,7 @@ on:
 #
 # `fedora:latest` tracks the newest Fedora release (currently shipping
 # GTK 4.22 / libadwaita 1.9). If it ever lags behind what the code needs,
-# pin it to a specific release whose gtk4-devel is >= 4.22, e.g.
-#   container: fedora:44
-container: fedora:latest
+# pin the job's `container:` to a specific release, e.g. `fedora:44`.
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,6 +24,7 @@ jobs:
   build-and-test:
     name: Build and test
     runs-on: ubuntu-latest
+    container: fedora:latest
     steps:
       # 1. Check out the workspace.
       - name: Checkout
