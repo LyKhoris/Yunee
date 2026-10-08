@@ -6,6 +6,8 @@ use std::rc::Rc;
 
 use adw::prelude::*;
 use gtk4 as gtk;
+use gtk4::gio;
+use gtk4::glib;
 use yunee_store as st;
 
 use crate::format;
@@ -267,6 +269,7 @@ fn build_modules(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
         ));
         return page;
     }
+    let group = adw::PreferencesGroup::new();
     for module in &modules {
         let items = ui
             .state
@@ -293,8 +296,9 @@ fn build_modules(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
             item_row.set_activatable(false);
             row.add_row(&item_row);
         }
-        page.append(&row);
+        group.add(&row);
     }
+    page.append(&group);
     page
 }
 
@@ -406,58 +410,144 @@ fn build_grades(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
     line.append(&widgets::pill(&summary, "info"));
     page.append(&line);
 
-    let grid = gtk::Grid::new();
-    grid.set_column_spacing(20);
-    grid.set_row_spacing(8);
-    grid.set_margin_top(8);
-    for (col, title) in ["Name", "Due", "Submitted", "Status", "Score"]
-        .iter()
-        .enumerate()
-    {
-        let label = gtk::Label::new(Some(title));
-        label.set_xalign(if col == 4 { 1.0 } else { 0.0 });
-        label.add_css_class("section");
-        grid.attach(&label, col as i32, 0, 1, 1);
+    let store = gio::ListStore::new::<glib::BoxedAnyObject>();
+    for a in &assignments {
+        store.append(&glib::BoxedAnyObject::new(a.clone()));
     }
-    let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
-    separator.set_margin_top(2);
-    separator.set_margin_bottom(2);
-    grid.attach(&separator, 0, 1, 5, 1);
-    for (i, a) in assignments.iter().enumerate() {
-        let row = i as i32 + 2;
 
-        let name = gtk::Label::new(Some(&a.name));
-        name.set_xalign(0.0);
-        name.add_css_class("row-title");
-        grid.attach(&name, 0, row, 1, 1);
+    let selection = gtk::NoSelection::new(Some(store));
+    let view = gtk::ColumnView::new(Some(selection));
+    view.set_show_row_separators(true);
+    view.set_show_column_separators(false);
+    view.set_margin_top(6);
 
-        let due_text = a
-            .due_at
-            .as_deref()
-            .map(format::due_label)
-            .unwrap_or_else(|| "—".into());
-        let due = gtk::Label::new(Some(&due_text));
-        due.set_xalign(0.0);
-        grid.attach(&due, 1, row, 1, 1);
+    view.append_column(&text_column(
+        "Name",
+        0.0,
+        true,
+        |a| a.name.clone(),
+        |a| a.name.to_lowercase(),
+    ));
+    view.append_column(&text_column(
+        "Due",
+        0.0,
+        false,
+        |a| {
+            a.due_at
+                .as_deref()
+                .map(format::due_label)
+                .unwrap_or_else(|| "—".into())
+        },
+        |a| a.due_at.clone().unwrap_or_default(),
+    ));
+    view.append_column(&status_column());
+    view.append_column(&text_column(
+        "Score",
+        1.0,
+        false,
+        widgets::score_text,
+        |a| format!("{:09.2}", a.score.unwrap_or(-1.0)),
+    ));
 
-        let submitted_text = a
-            .submitted_at
-            .as_deref()
-            .map(format::short_date)
-            .unwrap_or_default();
-        let submitted = gtk::Label::new(Some(&submitted_text));
-        submitted.set_xalign(0.0);
-        grid.attach(&submitted, 2, row, 1, 1);
-
-        let status = widgets::assignment_pill(a);
-        status.set_halign(gtk::Align::Start);
-        grid.attach(&status, 3, row, 1, 1);
-
-        let score = gtk::Label::new(Some(&widgets::score_text(a)));
-        score.set_xalign(1.0);
-        score.set_halign(gtk::Align::End);
-        grid.attach(&score, 4, row, 1, 1);
-    }
-    page.append(&grid);
+    page.append(&view);
     page
+}
+
+/// A sortable, single-line text column for the grades table.
+fn text_column(
+    title: &str,
+    xalign: f32,
+    expand: bool,
+    text: fn(&st::Assignment) -> String,
+    key: fn(&st::Assignment) -> String,
+) -> gtk::ColumnViewColumn {
+    let factory = gtk::SignalListItemFactory::new();
+    factory.connect_setup(move |_, item| {
+        let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let label = gtk::Label::new(None);
+        label.set_xalign(xalign);
+        label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+        item.set_child(Some(&label));
+    });
+    factory.connect_bind(move |_, item| {
+        let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let (Some(label), Some(object)) = (item.child().and_downcast::<gtk::Label>(), item.item())
+        else {
+            return;
+        };
+        if let Some(a) = assignment_of(&object) {
+            label.set_text(&text(&a));
+        }
+    });
+    let column = gtk::ColumnViewColumn::new(Some(title), Some(factory));
+    column.set_expand(expand);
+    let sorter = gtk::CustomSorter::new(move |left, right| {
+        match (assignment_of(left), assignment_of(right)) {
+            (Some(a), Some(b)) => cmp_order(key(&a).cmp(&key(&b))),
+            _ => gtk::Ordering::Equal,
+        }
+    });
+    column.set_sorter(Some(&sorter));
+    column
+}
+
+/// The Status column — a pill per row.
+fn status_column() -> gtk::ColumnViewColumn {
+    let factory = gtk::SignalListItemFactory::new();
+    factory.connect_setup(|_, item| {
+        let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let label = gtk::Label::new(None);
+        label.set_halign(gtk::Align::Start);
+        item.set_child(Some(&label));
+    });
+    factory.connect_bind(|_, item| {
+        let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+            return;
+        };
+        let (Some(label), Some(object)) = (item.child().and_downcast::<gtk::Label>(), item.item())
+        else {
+            return;
+        };
+        for class in ["pill", "ok", "warn", "danger", "info", "muted"] {
+            label.remove_css_class(class);
+        }
+        if let Some(a) = assignment_of(&object) {
+            let (text, class) = widgets::status_of(&a);
+            label.set_text(text);
+            label.add_css_class("pill");
+            label.add_css_class(class);
+        }
+    });
+    let column = gtk::ColumnViewColumn::new(Some("Status"), Some(factory));
+    let sorter =
+        gtk::CustomSorter::new(
+            |left, right| match (assignment_of(left), assignment_of(right)) {
+                (Some(a), Some(b)) => {
+                    cmp_order(widgets::status_of(&a).0.cmp(widgets::status_of(&b).0))
+                }
+                _ => gtk::Ordering::Equal,
+            },
+        );
+    column.set_sorter(Some(&sorter));
+    column
+}
+
+fn assignment_of(object: &glib::Object) -> Option<st::Assignment> {
+    object
+        .downcast_ref::<glib::BoxedAnyObject>()
+        .map(|boxed| boxed.borrow::<st::Assignment>().clone())
+}
+
+fn cmp_order(order: std::cmp::Ordering) -> gtk::Ordering {
+    match order {
+        std::cmp::Ordering::Less => gtk::Ordering::Smaller,
+        std::cmp::Ordering::Equal => gtk::Ordering::Equal,
+        std::cmp::Ordering::Greater => gtk::Ordering::Larger,
+    }
 }

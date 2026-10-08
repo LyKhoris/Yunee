@@ -127,29 +127,35 @@ pub fn empty_state(icon: &str, title: &str, description: &str) -> adw::StatusPag
     page
 }
 
-/// The status pill for an assignment. Never shows the grade — the score is a
-/// separate column/field, so a "5" never appears where a status belongs.
-pub fn assignment_pill(a: &st::Assignment) -> gtk::Label {
+/// (text, css class) for an assignment's status. Never the grade — the score
+/// is shown separately, so a number never lands where a status belongs.
+pub fn status_of(a: &st::Assignment) -> (&'static str, &'static str) {
     if a.excused {
-        return pill("excused", "muted");
+        return ("excused", "muted");
     }
     if a.score.is_some() {
-        return pill("graded", "ok");
+        return ("graded", "ok");
     }
     if a.is_submitted() {
-        return pill("submitted", "ok");
+        return ("submitted", "ok");
     }
     if a.missing {
-        return pill("missing", "danger");
+        return ("missing", "danger");
     }
     if a.due_at
         .as_deref()
         .map(crate::format::is_overdue)
         .unwrap_or(false)
     {
-        return pill("overdue", "danger");
+        return ("overdue", "danger");
     }
-    pill("todo", "warn")
+    ("todo", "warn")
+}
+
+/// The status pill for an assignment.
+pub fn assignment_pill(a: &st::Assignment) -> gtk::Label {
+    let (text, class) = status_of(a);
+    pill(text, class)
 }
 
 /// "5 / 5" or "- / 5".
