@@ -13,11 +13,13 @@
 //! The crate has no storage or UI dependency; it only speaks HTTP and JSON.
 
 pub mod client;
+pub mod discovery;
 pub mod error;
 pub mod ids;
 pub mod pagination;
 pub mod types;
 
 pub use client::{CanvasClient, normalize_base};
+pub use discovery::{SchoolMatch, search_schools};
 pub use error::CanvasError;
 pub use types::*;
