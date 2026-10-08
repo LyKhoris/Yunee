@@ -111,3 +111,29 @@ Only two config values tie it to a provider (`DEEPGRAM_API_KEY`,
   click could lock the operator out permanently. Admin pages and actions re-check
   admin server-side from the row on every request, so a demotion takes effect
   immediately, exactly like revocation.
+- **2026-10-08 — The pivot pivots again: Yunee is a local desktop app, not a web
+  SaaS.** It makes no money and hosts nobody. One app, one user, running on the
+  founder's own machine: **Fedora + GNOME**, built **GTK4 + libadwaita in Rust
+  (Relm4, tokio, rusqlite)**, packaged as a **Flatpak**. No accounts, no members,
+  no sessions, no expiry, no web app — all of it is deleted, not kept anywhere.
+  All of Yunee's 2026-10-02 access decisions (members, `/admin`, invite tokens,
+  epochs, Turso) are thereby retired; this entry wins for anything else written
+  on 2026-10-08.
+- **2026-10-08 — Product identity: "a better Canvas client first".** The app's
+  spine is a Canvas LMS client — courses, assignments with submission status,
+  announcements with read tracking, planner/todo, grade view, course files —
+  synced to a local SQLite store (FTS5 search), with background incremental sync
+  and OS notifications. Foxi's Canvas layer was deliberately GET-only and
+  pagination-blind; Yunee ships **student writes in v1** (assignment submission
+  via the 3-step upload flow, mark module done/read, planner overrides).
+  Keyboard access tokens (not OAuth) are correct for single-user use. The
+  recording / transcription / notes-with-verified-quotes / chat layer is the
+  milestone after the Canvas client is daily-usable; its algorithms (quote guard,
+  quality gates, process-once, audio hygiene) carry over as behavioral
+  contracts **only**, never as code.
+- **2026-10-08 — Build environment**: development happens on the founder's Fedora
+  workstation (needs `gtk4-devel`, `libadwaita-devel`, `pkgconf-pkg-config`,
+  `cmake`, `gcc`; Rust via rustup). The umbrel sandbox cannot install GTK or a
+  toolchain and is not a build target.
+- **2026-10-08 — Open:** app id beyond the codename (`io.github.LyKhoris.Yunee`
+  provisional); name; UI identity (default: stock libadwaita, no Foxi mascot).
