@@ -38,6 +38,37 @@ pub fn opt_id_vec<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<Stri
         .collect())
 }
 
+/// A number that Canvas may send as a JSON number *or* a string.
+pub fn number<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
+    let value = serde_json::Value::deserialize(deserializer)?;
+    value_to_f64(value).ok_or_else(|| de::Error::custom("expected a number"))
+}
+
+/// Optional number, number-or-string, or null.
+pub fn opt_number<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<f64>, D::Error> {
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(value.and_then(value_to_f64))
+}
+
+/// Optional integer, number-or-string, or null. Fractions truncate.
+pub fn opt_int<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<i64>, D::Error> {
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(value.and_then(|v| match v {
+        serde_json::Value::Number(n) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)),
+        serde_json::Value::String(s) => s.trim().parse::<i64>().ok(),
+        serde_json::Value::Bool(b) => Some(b as i64),
+        _ => None,
+    }))
+}
+
+fn value_to_f64(value: serde_json::Value) -> Option<f64> {
+    match value {
+        serde_json::Value::Number(n) => n.as_f64(),
+        serde_json::Value::String(s) => s.trim().parse::<f64>().ok(),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

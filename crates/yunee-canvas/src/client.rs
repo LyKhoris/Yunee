@@ -6,7 +6,7 @@
 
 use std::path::Path;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use reqwest::header::{CONTENT_TYPE, HeaderMap, RETRY_AFTER};
 use reqwest::{Client, Response};
@@ -18,7 +18,7 @@ use crate::pagination::next_link;
 use crate::types::*;
 
 /// How many times to retry a throttled request before giving up.
-const MAX_RETRIES: u32 = 4;
+const MAX_RETRIES: u32 = 6;
 
 /// The `Accept` value that asks Canvas to return ids as strings. We still parse
 /// tolerantly, but asking reduces surprise.
@@ -33,6 +33,10 @@ pub struct CanvasClient {
     token: String,
     /// Last observed `X-Rate-Limit-Remaining`, in request-cost units.
     remaining: Mutex<Option<f64>>,
+    /// Set when Canvas throttles us; every later request waits until it passes,
+    /// so one 403/429 slows the whole sync rather than just retrying the one
+    /// request that tripped the bucket.
+    cooldown: Mutex<Option<Instant>>,
 }
 
 impl std::fmt::Debug for CanvasClient {
@@ -61,6 +65,7 @@ impl CanvasClient {
             base,
             token: token.to_string(),
             remaining: Mutex::new(None),
+            cooldown: Mutex::new(None),
         })
     }
 
@@ -494,7 +499,7 @@ impl CanvasClient {
                     return Err(CanvasError::RateLimited { attempts: attempt });
                 }
                 let wait = backoff(attempt, retry_after(resp.headers()));
-                tokio::time::sleep(wait).await;
+                *self.cooldown.lock().unwrap() = Some(Instant::now() + wait);
                 continue;
             }
             let code = status.as_u16();
@@ -517,14 +522,23 @@ impl CanvasClient {
         }
     }
 
-    /// Wait briefly if the budget is nearly spent. A single client issuing one
-    /// request at a time is very unlikely to be throttled, but this keeps a
-    /// burst (a first full sync) from tripping the bucket.
+    /// Wait if the bucket is drained. A rate-limit response sets a cooldown
+    /// that every subsequent request respects, which is what keeps a full
+    /// first sync (dozens of requests in a row) from tripping Canvas.
     async fn throttle(&self) {
+        let cooldown = {
+            let until = *self.cooldown.lock().unwrap();
+            until.and_then(|t| t.checked_duration_since(Instant::now()))
+        };
+        if let Some(wait) = cooldown {
+            tokio::time::sleep(wait).await;
+            return;
+        }
         let remaining = *self.remaining.lock().unwrap();
         if let Some(remaining) = remaining {
-            if remaining < 3.0 {
-                tokio::time::sleep(Duration::from_millis(400)).await;
+            // Slow down as the budget thins out.
+            if remaining < 5.0 {
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
     }

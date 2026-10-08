@@ -35,7 +35,9 @@ pub struct Enrollment {
     #[serde(default, deserialize_with = "ids::opt_id")]
     pub id: Option<String>,
     pub enrollment_state: Option<String>,
+    #[serde(default, deserialize_with = "ids::opt_number")]
     pub current_score: Option<f64>,
+    #[serde(default, deserialize_with = "ids::opt_number")]
     pub final_score: Option<f64>,
     pub current_grade: Option<String>,
     pub final_grade: Option<String>,
@@ -54,7 +56,9 @@ pub struct Course {
     #[serde(default)]
     pub enrollments: Vec<Enrollment>,
     /// Present when `include[]=total_scores`.
+    #[serde(default, deserialize_with = "ids::opt_number")]
     pub computed_current_score: Option<f64>,
+    #[serde(default, deserialize_with = "ids::opt_number")]
     pub computed_final_score: Option<f64>,
     pub computed_current_grade: Option<String>,
     pub computed_final_grade: Option<String>,
@@ -67,8 +71,10 @@ pub struct Submission {
     pub workflow_state: Option<String>,
     pub submitted_at: Option<String>,
     pub graded_at: Option<String>,
+    #[serde(default, deserialize_with = "ids::opt_number")]
     pub score: Option<f64>,
     pub grade: Option<String>,
+    #[serde(default, deserialize_with = "ids::opt_int")]
     pub attempt: Option<i64>,
     pub late: Option<bool>,
     pub missing: Option<bool>,
@@ -87,15 +93,18 @@ pub struct Assignment {
     pub due_at: Option<String>,
     pub unlock_at: Option<String>,
     pub lock_at: Option<String>,
+    #[serde(default, deserialize_with = "ids::opt_number")]
     pub points_possible: Option<f64>,
     #[serde(default)]
     pub submission_types: Vec<String>,
     pub html_url: Option<String>,
-    pub quiz_id: Option<i64>,
+    #[serde(default, deserialize_with = "ids::opt_id")]
+    pub quiz_id: Option<String>,
     pub published: Option<bool>,
     /// The caller's own submission, when `include[]=submission`.
     pub submission: Option<Submission>,
-    pub course_id: Option<i64>,
+    #[serde(default, deserialize_with = "ids::opt_id")]
+    pub course_id: Option<String>,
     pub can_submit: Option<bool>,
 }
 
@@ -115,16 +124,20 @@ pub struct DiscussionTopic {
     pub last_reply_at: Option<String>,
     pub author: Option<TopicAuthor>,
     pub read_state: Option<String>,
+    #[serde(default, deserialize_with = "ids::opt_int")]
     pub unread_count: Option<i64>,
+    #[serde(default, deserialize_with = "ids::opt_int")]
     pub discussion_subentry_count: Option<i64>,
     pub html_url: Option<String>,
-    pub course_id: Option<i64>,
+    #[serde(default, deserialize_with = "ids::opt_id")]
+    pub course_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CompletionRequirement {
     #[serde(rename = "type")]
     pub kind: Option<String>,
+    #[serde(default, deserialize_with = "ids::opt_number")]
     pub min_score: Option<f64>,
     pub completed: Option<bool>,
 }
@@ -158,7 +171,8 @@ pub struct Module {
     pub completed_at: Option<String>,
     #[serde(default)]
     pub items: Vec<ModuleItem>,
-    pub course_id: Option<i64>,
+    #[serde(default, deserialize_with = "ids::opt_id")]
+    pub course_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -181,6 +195,7 @@ pub struct FileEntry {
     pub display_name: Option<String>,
     pub filename: Option<String>,
     pub content_type: Option<String>,
+    #[serde(default, deserialize_with = "ids::opt_int")]
     pub size: Option<i64>,
     pub url: Option<String>,
     pub created_at: Option<String>,
@@ -208,7 +223,8 @@ pub struct PlannerItem {
     pub plannable_type: Option<String>,
     #[serde(default, deserialize_with = "ids::opt_id")]
     pub plannable_id: Option<String>,
-    pub course_id: Option<i64>,
+    #[serde(default, deserialize_with = "ids::opt_id")]
+    pub course_id: Option<String>,
     /// Polymorphic: shape depends on `plannable_type`.
     pub plannable: Option<Plannable>,
     pub html_url: Option<String>,
@@ -224,8 +240,10 @@ pub struct Plannable {
     pub title: Option<String>,
     pub name: Option<String>,
     pub due_at: Option<String>,
+    #[serde(default, deserialize_with = "ids::opt_number")]
     pub points_possible: Option<f64>,
-    pub course_id: Option<i64>,
+    #[serde(default, deserialize_with = "ids::opt_id")]
+    pub course_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -235,11 +253,13 @@ pub struct TodoItem {
     pub assignment: Option<Assignment>,
     pub html_url: Option<String>,
     pub ignore: Option<String>,
-    pub course_id: Option<i64>,
+    #[serde(default, deserialize_with = "ids::opt_id")]
+    pub course_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ActivitySummary {
+    #[serde(default, deserialize_with = "ids::opt_int")]
     pub unread_count: Option<i64>,
     #[serde(default, deserialize_with = "ids::opt_id_vec")]
     pub unread_ids: Vec<String>,
@@ -247,5 +267,6 @@ pub struct ActivitySummary {
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UnreadCount {
+    #[serde(default, deserialize_with = "ids::opt_int")]
     pub unread_count: Option<i64>,
 }
