@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# We build and test inside a Fedora container on purpose.
+#
+# Yunee links GTK 4.22 and libadwaita 1.9, which are newer than the versions
+# in Ubuntu's default repositories (and on ubuntu-latest runners). Installing
+# from a PPA is fragile, so instead we use Fedora, whose gtk4-devel /
+# libadwaita-devel track recent GNOME releases.
+#
+# `fedora:latest` tracks the newest Fedora release (currently shipping
+# GTK 4.22 / libadwaita 1.9). If it ever lags behind what the code needs,
+# pin it to a specific release whose gtk4-devel is >= 4.22, e.g.
+#   container: fedora:44
+container: fedora:latest
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Check out the workspace.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 2. System libraries.
+      #    Containers run as root, so `sudo` is unnecessary (and often not
+      #    installed). We call dnf directly. `which` is pulled in explicitly
+      #    because some build scripts assume it exists.
+      - name: Install system dependencies
+        run: |
+          dnf install -y \
+            gtk4-devel \
+            libadwaita-devel \
+            libsecret-devel \
+            pkgconf-pkg-config \
+            cmake \
+            gcc \
+            gcc-c++ \
+            git \
+            which
+
+      # 3. Stable Rust with the components CI checks against.
+      #    dtolnay/rust-toolchain works inside containers (it installs via rustup).
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      # 4. Cache ~/.cargo and target/ keyed on the lockfile and toolchain.
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # 5. Formatting.
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      # 6. Lints. Any warning fails the build.
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # 7. Tests across all three crates.
+      - name: Test
+        run: cargo test --workspace
+
+      # 8. Release build, matching how Yunee actually ships.
+      - name: Build (release)
+        run: cargo build --workspace --release

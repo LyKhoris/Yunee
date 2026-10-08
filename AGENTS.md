@@ -1,176 +1,234 @@
 # Yunee — build notes
 
-**Yunee** is the private successor to Foxi. Where Foxi was a public subscription
-SaaS operating its own cloud, **Yunee is a personal tool for the founder and a few
-friends**, where each person brings their own machine and their own accounts. The
-name is a working codename and is provisional until the founder locks it.
+**Yunee** is a local, single-user desktop application for one student's Canvas
+world. It is a Canvas LMS client for GNOME — courses, assignments with submission
+state, announcements, modules, files, and the planner — synced into a local SQLite
+database, with a study layer (recording → transcription → notes with verified
+quotes → chat) planned as a later milestone. It is not hosted, not shared, and not
+sold. Whoever runs it on their machine has access; there is no account to create
+and no one to authenticate against except Canvas itself.
 
-**Status: just created (2026-10-02).** The runtime shape and the access model are
-decided — see "Runtime shape and access" below. This file is the authority for
-building Yunee; update it whenever a decision lands. If code or a plan contradicts
-this file, this file wins.
+This file is the authority for building Yunee. Update it whenever a decision
+lands. If code or a plan contradicts this file, this file wins. The historical
+decision log — including the two pivots that produced this shape — is in
+`docs/pivot.md`; read it, do not mistake it for the current spec.
 
-## Provenance
+## What Yunee is now — and is not
 
-Yunee is seeded from **Foxi**, which is frozen and archived:
+It **is**:
 
-- Repo: `LyKhoris/Foxi` (private, archived — read-only)
-- Tag: `pre-pivot-saas` at the final committed state
+- A GTK4 + libadwaita desktop app written in Rust, packaged as a Flatpak.
+- A Canvas client first. Canvas is the spine; the study layer is additive.
+- Local and offline-first: the UI reads from SQLite, the network is touched only
+  by the sync engine.
+- One user per install, on that person's own machine, with that person's own
+  Canvas token.
 
-The old repo stays as the reference for the transformation pipeline, the course
-data model, and the design system. Read it, don't build on it.
+It **is not**:
 
-## What changed (full detail in `docs/pivot.md`)
+- A web app, a PWA, a SaaS, or anything with accounts, members, or invites.
+- Multi-tenant. There is no `user_id`, no tenant column, no row-level security;
+  the filesystem is the only isolation.
+- Hosted by anyone. There is no server to run, no cron, no webhook, no push
+  delivery.
+- Billing, tiers, usage caps, or cost telemetry.
+- A multi-user distribution. The Canvas API's terms would require OAuth for that;
+  a personal access token is the correct and intended auth for a single-user local
+  tool.
 
-| | Foxi (before) | Yunee (now) |
-|---|---|---|
-| Business | Public subscription SaaS | Founder + a few friends |
-| Tenancy | Multi-tenant | Single-user per install |
-| Infra | Foxi-operated cloud | Each user's own machine / accounts |
-| Intake | In-app recorder + upload | The user's own recording app, upload, etc. |
-| Who pays | Foxi (subscription) | The user (their own keys / quota) |
-| Identity | Store id, domain, terms/privacy | Private, no public-product identity |
+## Runtime shape & access — decided 2026-10-08
 
-## Runtime shape and access — decided 2026-10-02
+One local desktop app, one user, no auth layer of its own. The window opens onto a
+`NavigationSplitView` shell: a sidebar of the dashboard and synced courses, and a
+content stack holding the **Dashboard**, **Course**, **Files**, and **Settings**
+pages. Pages are rebuilt from the local store whenever data changes, so the UI
+never blocks on the network.
 
-Yunee is **one small instance the founder operates**, for himself and a few
-friends. It is a **web app / PWA** (no native app for now), and it is
-**invite-only**.
+Access is simply running the app. Conversations that existed for the retired web
+shape — members, `/admin`, invite tokens, session epochs, expiry, roles, payment
+periods — are gone and must not return. They only ever made sense because strangers
+reached a shared server.
 
-**Access is in-house.** No third-party identity provider, no Cloudflare Access. A
-member is a row in a table, with a username and a password:
+## Product identity — decided 2026-10-08
 
-- The founder creates a member with a **username**
-  (`npm run members -- add Ada --username ada`); a secret **invite token** becomes a
-  one-time link (`/i/<token>`).
-- Opening the invite link once lets the member **choose a password**; the link is
-  then spent. From any device afterwards they sign in at `/login` with
-  username + password.
-- No email, no email verification, no self-signup. **Password resets are manual**:
-  the founder runs `npm run members -- reset <id>` to print a fresh one-time link
-  (and clear the old password). Nothing to reset by email because nothing sends
-  email.
-- Sessions are signed, expiring cookies. Each carries the member's `session_epoch`,
-  and a **revoke or reset bumps that epoch**, so devices already signed in are cut
-  off at once.
-- **Two roles: admin and member.** `is_admin` is a plain flag on the row. The
-  founder is the admin; friends are members. Admin surfaces live under `/admin` and
-  are gated **server-side** on every page and every action — a demoted admin loses
-  them on the next request, the same instant re-check that makes revocation exact.
-- **Member management is a web UI, not a CLI.** `/admin` lists the roster and does
-  everything: invite someone, extend a period, revoke/enable, promote/demote,
-  reset a link, delete. The CLI is only for the **one-time bootstrap** — promoting
-  the very first admin (`npm run members -- promote <id>`) — and for changes the UI
-  cannot reach. Nothing else should require a terminal.
-- **The last admin is protected.** Revoking, demoting, or deleting the only admin
-  is refused (in the UI and the CLI alike) rather than allowed quietly; otherwise a
-  single click could lock the operator out with no way back in.
-- **Payment is off-system.** A payment buys a *period*, recorded as
-  `access_expires_at`. Not renewing lets access lapse on its own. No payment
-  processor yet — revisit Stripe only when the friend count makes manual renewal
-  annoying.
-- **Revocation** is setting the member inactive (or past expiry), checked
-  server-side on every request, so it is instant and exact.
-- **The founder pays** for transcription and model calls, covered by the fee.
-- **Cloudflare Tunnel / Tailscale** may be added later purely as a *deployment*
-  layer, to expose a home host safely. It is not part of access control.
+**"A better Canvas client first."** The app's spine is Canvas: courses,
+assignments with submission status, announcements with read tracking, modules and
+items, folders and files, planner/todo, and grade views, synced to local SQLite
+with FTS5 search.
 
-**Stack (current choice):** Next.js (App Router) + TypeScript, with **Turso**
-(libSQL / SQLite) as the store. Development uses a local SQLite file
-(`file:data/yunee.db`); production points the same client at Turso Cloud via
-`TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN`. One SQL dialect, no managed Postgres.
+The **study layer** — recording, transcription, notes with verified quotes, and
+chat — is the milestone *after* the Canvas client is daily-usable. It is not in
+v1. Foxi's algorithms for it (quote guard, quality gates, process-once, audio
+hygiene) carry over as **behavioral contracts only**, never as code, and never
+with a storage dependency on the old system.
 
-**Why Turso and not Supabase:** Yunee stores no files and needs no auth provider,
-realtime, or RLS — it uses none of the bundle Supabase charges for. Turso's free
-tier is always-on (no inactivity pause), includes 5 GB and 1-day point-in-time
-restore, and keeps SQLite's model. Supabase's free tier pauses after 7 days of
-inactivity and has **no backups**, which fails the "no file loss" requirement; its
-only fixes are the parts of Pro ($25/mo) Yunee would never use.
+## Architecture
 
-**Backups are still on the founder.** Turso's 1-day restore window is not a
-complete answer to "no file loss" — the durable safety net is a periodic dump the
-founder owns (see `docs/` if it exists, otherwise a nightly export task).
+A Cargo workspace with three crates. Each has one job, and the dependency arrows
+point inward — the UI depends on the store and the Canvas client, and neither of
+those depends on the UI.
 
-**Not yet decided:** intake for friends (see Open questions); the pipeline itself.
+### `crates/yunee-canvas` — typed Canvas REST client
 
-**Live (2026-10-02):** deployed at `https://yunee.vercel.app`.
-- App process: Vercel (Hobby plan — *non-commercial terms; Yunee charges, accepted
-  at this scale, upgrade to Pro if it grows*).
-- Database: Turso Cloud, `libsql://yunee-lykhoris.aws-us-west-2.turso.io`
-  (primary `aws-us-west-2`). Nothing of the founder's is always-on.
-- Env vars in Vercel (production): `SESSION_SECRET`, `APP_URL`,
-  `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`.
-- Commands: `npm run members -- …` for admin; `vercel deploy --prod` to ship;
-  `turso db shell yunee` to inspect.
+Speaks only HTTP and JSON; it has no storage or UI dependency. It covers every
+read Yunee needs (courses with teachers/term/grades, assignments including the
+student's submission state, announcements, modules + items, folders + files, and
+planner/todo), file downloads, and the student writes listed below.
 
-## What carries over — the moat is already decoupled
+It deliberately fixes three weaknesses of the earlier integration:
 
-The transformation core has **no storage dependency** in the old code and moves
-nearly verbatim:
+1. **Pagination.** Every list endpoint follows the RFC 8288 `Link: rel="next"`
+   header to the end, instead of silently truncating at one page.
+2. **Throttling.** It watches `X-Rate-Limit-Remaining`, pauses briefly when the
+   budget runs low, and backs off with `Retry-After`-aware delays on HTTP 403/429,
+   retrying a bounded number of times.
+3. **Feature detection.** HTTP 404 surfaces as `CanvasError::NotFound`, not a
+   crash, so callers can degrade gracefully on older or self-hosted Canvas that
+   lacks an endpoint.
 
-`transcribe` → `chunking` → `notes` → `quotes` (never invent content) → `chat` /
-`model`, plus read-only `canvas`.
+ids are parsed tolerantly (Canvas may send numbers or strings) and normalized to
+`String`. See `docs/canvas-sync.md` for the full contract.
 
-Only two provider values tie it to a vendor (`DEEPGRAM_API_KEY`,
-`AI_GATEWAY_API_KEY`) — and those become the **operator's** keys (the founder's,
-covered by the fee).
+### `crates/yunee-store` — local SQLite memory
 
-## Discarded assumptions — do not reintroduce
+The durable memory of one student: a single SQLite file (rusqlite, bundled, WAL)
+holding courses, assignments, announcements, modules, module items, folders,
+files, planner items, sync bookkeeping, settings, and an FTS5 index over the
+searchable text. There is no tenancy of any kind.
 
-- Multi-tenancy, `user_id` scoping, RLS as the isolation boundary.
-- Yunee pays for transcription or model calls.
-- An always-on hosted server: cron jobs, webhooks, push delivery.
-- Billing, tiers, monthly usage caps, cost telemetry.
-- Public-product identity: store application id, an OAuth URL scheme, a custom
-  domain, provider redirect allowlists, terms/privacy pages.
+Everything is headless and unit-tested. The UI and the sync engine are its only
+callers. A `rusqlite::Connection` is `Send` but not `Sync`, so it lives behind a
+`Mutex`; the app shares one `Store` (via `Arc`) between the GTK main thread and
+background work. Upserts key on the Canvas id, so a re-sync updates rows instead
+of duplicating them. See `docs/architecture.md` for the schema overview.
+
+### `crates/yunee` — the GTK4 + libadwaita app
+
+The application itself, built with plain gtk4-rs and libadwaita (no Relm4). It owns
+the window and pages, the sync engine, the shared Tokio runtime, the secret store,
+and desktop integration (GNOME notifications). This is the only crate that
+depends on both of the others.
+
+## Canvas integration & auth
+
+**Auth is a Canvas personal access token**, created in Canvas under
+**Account → Settings → New Access Token**. The token is verified against
+`/users/self` *before* it is saved, so a typo or a wrong-instance token fails at
+connect time rather than silently at the next sync. Tokens are domain-bound, so a
+token for one Canvas instance will not authenticate against another.
+
+**Policy note:** the Canvas API terms require OAuth for multi-user distribution.
+Yunee is a single-user local tool, so a personal access token is the appropriate
+mechanism; Yunee is not distributed as a multi-user client.
+
+**v1 Canvas reads:** courses (with teachers, term, grades), assignments including
+submission state, announcements, modules + items, folders + files, planner/todo.
+
+**v1 Canvas writes (student-only, whatever Canvas documents for students):**
+
+- Assignment submission — `online_text_entry`, `online_url`, and `online_file`
+  via the documented **3-step upload flow** (ask Canvas for an upload target, POST
+  the file to it, then attach the returned file id to the submission).
+- Mark a module item done / mark it read.
+- Planner overrides (mark complete / dismiss).
+- Mark an announcement read.
 
 ## Hard rules that survive
 
+These grew up around the recording/study layer and still bind it when it lands.
+They do not license inventing behavior in the Canvas client either.
+
 1. **Never invent content.** Quotes, names, page numbers, and dates come from the
-   transcript only.
-2. **Trustworthy transcripts.** Surface a thin suspect recording; offer a re-upload
-   path. Never generate notes from a transcript known to be unreliable without
-   saying so.
+   transcript only — never synthesized, never approximated.
+2. **Trustworthy transcripts.** Surface a thin or suspect recording; offer a
+   re-upload path. Never generate notes from a transcript known to be unreliable
+   without saying so.
 3. **Audio is temporary, the transcript is durable.** Delete audio once its
    transcript (and note) are committed.
-4. **Never lose a recording.** Local buffering where recording happens locally.
+4. **Never lose a recording.** Buffer locally where recording happens locally.
 5. **Real deletion.** Delete means delete.
 
 *(Open: whether the consent / recording-law acknowledgment, framed for a public
-product recording others' lectures, still applies for the founder and friends. See
-`docs/pivot.md`.)*
+product recording others' lectures, still applies for a local single-user tool.
+See `docs/pivot.md`.)*
 
-## Open questions
+## Data locations & secrets
 
-Resolved 2026-10-02: runtime shape, identity/access, storage, and who pays — see
-"Runtime shape and access" above. Hosting is resolved too (Vercel + Turso).
+Single-user, XDG, no hidden cloud.
 
-Still open:
+| What | Where |
+|---|---|
+| Database | `$XDG_DATA_HOME/yunee/yunee.db`, else `~/.local/share/yunee/yunee.db` |
+| Downloaded files | `$XDG_DATA_HOME/yunee/files/`, else `~/.local/share/yunee/files/` |
+| Canvas token | GNOME keyring via libsecret; fallback `~/.local/share/yunee/canvas-token` (mode `0600`) |
 
-1. **Intake** — the founder uses Voicenotes (a sync script already exists in
-   `.hermes/`). Do friends upload, record in-app, or bring their own app?
-2. **Backups** — Turso's 1-day point-in-time restore is not a complete answer to
-   "no file loss"; a periodic dump the founder owns is still owed.
-3. **Payment automation** — manual periods for now; Stripe when the friend count
-   makes it worth it.
-4. **Name** — "Yunee" is provisional; repo, package id, and any scheme wait on the
-   real name.
+Keyring is the primary home. If the Secret Service is unreachable (no D-Bus, a
+locked keyring, a headless session), Yunee falls back to the `0600` file so the
+app stays usable, and says so. The server address is a non-secret setting; the
+token is never written to the database.
+
+## Build / run / check
+
+Fedora workstation, GNOME. System libraries plus Flatpak tooling:
+
+```bash
+sudo dnf install gtk4-devel libadwaita-devel libsecret-devel \
+    pkgconf-pkg-config cmake gcc gcc-c++ flatpak-builder
+```
+
+Rust via rustup (workspace is edition 2024, `rust-version = "1.85"`).
+
+```bash
+cargo run -p yunee            # build and launch the app
+cargo test --workspace        # unit tests across all three crates
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all --check
+cargo build --workspace --release
+```
+
+CI builds and tests inside a Fedora container, because Yunee links GTK 4.22 and
+libadwaita 1.9, which are newer than what Ubuntu's repositories carry.
+
+## What changed — retired web / SaaS assumptions, do not reintroduce
+
+The 2026-10-08 pivot deleted the web code outright; nothing from it is reused. The
+following existed only because Yunee was once a hosted multi-tenant service, and
+must not leak back into the design:
+
+- Multi-tenancy, `user_id` scoping, RLS or any tenancy column as an isolation
+  boundary. The filesystem is the isolation.
+- An always-on hosted server: cron jobs, webhooks, push delivery, sync endpoints.
+- Billing, tiers, monthly usage caps, cost telemetry, payment periods.
+- Email, email verification, password resets, or any auth provider.
+- Invite links, member accounts, sessions, expiry, roles, and admin surfaces.
+- Public-product identity: a store application id for a store listing, an OAuth
+  URL scheme, a custom domain, provider redirect allowlists, terms/privacy pages.
+- Next.js, TypeScript, Turso / libSQL Cloud, Vercel, and the `.env`-based
+  deployment config. Local SQLite replaces the managed store entirely.
+
+The app id `io.github.LyKhoris.Yunee` and the binary name `yunee` are current; see
+Open questions for the parts still provisional.
 
 ## Working rules
 
 - **Stage explicit paths. Never `git add -A`.**
 - **Commit small and promptly.**
-- **Secrets never enter git.** `.env.local` (gitignored) only.
+- **Secrets never enter git.** The Canvas token lives in the keyring or a `0600`
+  file, both outside the tree. `*.db`, `*.db-wal`, and `canvas-token` are
+  gitignored; keep it that way.
 - **Write the decision down before building it.** Decisions go in this file or
   `docs/`, then become code.
-- **Verify in the browser** for any user-facing surface, using BrowserOS.
+- **Verify by running the app** on Fedora + GNOME for any user-facing surface.
 
-<!-- BEGIN:nextjs-agent-rules -->
+## Open questions
 
-# This is NOT the Next.js you know
-
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
-
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
-
-<!-- END:nextjs-agent-rules -->
+1. **App id and name.** `io.github.LyKhoris.Yunee` and "Yunee" are the working
+   identity, tied to the GitHub account. Both are provisional until the founder
+   locks a name; the repo, Flatpak manifest, and desktop files follow the
+   decision.
+2. **Study-layer intake.** How a recording arrives — in-app capture, a file drop,
+   or syncing from an external recorder such as Voicenotes — is undecided. It
+   only matters once the Canvas client is daily-usable.
+3. **Background sync cadence.** Startup and manual sync exist. Whether an
+   interval timer or a smarter trigger is added, and how notifications respect it,
+   is open.
