@@ -1,16 +1,15 @@
 //! Shared view pieces.
 //!
-//! Colour policy: the app follows the user's GTK/libadwaita theme. The only
-//! explicit colours are the per-course accent that Canvas gives each course
-//! (the professor's colour) and the semantic status pills, which use
-//! libadwaita's theme-aware named colours. Nothing else is hardcoded, so light
-//! and dark themes, and custom themes, all render legibly.
+//! Colour policy: everything follows the user's GTK/libadwaita theme. The only
+//! explicit colour is the small per-course dot, which reuses the colour Canvas
+//! assigns each course so they stay recognisable. Status pills use
+//! libadwaita's theme-aware semantic colours.
 
 use adw::prelude::*;
 use gtk4 as gtk;
 use yunee_store as st;
 
-/// Course accent palette — used for the card strip and the little dot.
+/// Per-course accent palette (Canvas assigns each course a colour).
 pub const ACCENTS: [&str; 8] = [
     "#C0392B", // red
     "#8E44AD", // purple
@@ -22,42 +21,34 @@ pub const ACCENTS: [&str; 8] = [
     "#B03A2E", // brick
 ];
 
-/// The stylesheet. Deliberately small: it never overrides theme colours except
-/// the course accents and the semantic pills.
+/// The stylesheet. Small on purpose: typography and the status pills, plus the
+/// course dots. Nothing else overrides the theme.
 pub fn css() -> String {
-    let mut accents = String::new();
+    let mut dots = String::new();
     for (i, color) in ACCENTS.iter().enumerate() {
-        accents.push_str(&format!(".accent-strip-{i} {{ background: {color}; }}\n"));
+        dots.push_str(&format!(".course-dot-{i} {{ background: {color}; }}\n"));
     }
     format!(
         r#"
-/* Typography only — no colours, so the theme's foreground applies. */
 .page-title {{ font-size: 1.6rem; font-weight: 800; }}
 .section {{ font-weight: 700; }}
 .muted {{ opacity: 0.7; }}
 .tiny {{ font-size: 0.8rem; }}
-.railpanel-title {{ font-weight: 700; }}
 .rail-label {{ font-size: 11px; font-weight: 600; }}
 .rail-title {{ font-weight: 800; font-size: 1.05rem; }}
 
-/* Course card: theme card background + border; the strip carries the colour. */
-.course-card {{
-    background: @card_bg_color;
-    border: 1px solid @borders;
-    border-radius: 8px;
-}}
-.card-body {{ padding: 10px 12px 12px 12px; }}
-.card-title {{ font-weight: 700; font-size: 14px; }}
+/* Course colour dot in the course list. */
+.course-dot {{ border-radius: 999px; min-width: 10px; min-height: 10px; }}
 
 /* Status pills use libadwaita's semantic colours. */
 .pill {{ border-radius: 10px; padding: 0 8px; font-size: 0.72rem; font-weight: 700; }}
-.pill.ok     {{ background: @success_bg_color;   color: @success_fg_color; }}
-.pill.warn   {{ background: @warning_bg_color;   color: @warning_fg_color; }}
-.pill.danger {{ background: @error_bg_color;     color: @error_fg_color; }}
-.pill.info   {{ background: @accent_bg_color;    color: @accent_fg_color; }}
+.pill.ok     {{ background: @success_bg_color; color: @success_fg_color; }}
+.pill.warn   {{ background: @warning_bg_color; color: @warning_fg_color; }}
+.pill.danger {{ background: @error_bg_color;   color: @error_fg_color; }}
+.pill.info   {{ background: @accent_bg_color;  color: @accent_fg_color; }}
 .pill.muted  {{ background: alpha(currentColor, 0.12); }}
 
-{accents}
+{dots}
 "#
     )
 }
@@ -81,9 +72,25 @@ pub fn accent_index(canvas_id: &str) -> usize {
     (sum as usize) % ACCENTS.len()
 }
 
+/// The small coloured dot shown beside a course.
+pub fn accent_dot(index: usize) -> gtk::Box {
+    let dot = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    dot.set_size_request(10, 10);
+    dot.set_valign(gtk::Align::Center);
+    dot.add_css_class("course-dot");
+    dot.add_css_class(&format!("course-dot-{index}"));
+    dot
+}
+
 pub fn clear_box(container: &gtk::Box) {
     while let Some(child) = container.first_child() {
         container.remove(&child);
+    }
+}
+
+pub fn clear_list(list: &gtk::ListBox) {
+    while let Some(child) = list.first_child() {
+        list.remove(&child);
     }
 }
 
@@ -119,7 +126,7 @@ pub fn empty_state(icon: &str, title: &str, description: &str) -> adw::StatusPag
     page
 }
 
-/// The status pill for an assignment, Canvas-style.
+/// The status pill for an assignment.
 pub fn assignment_pill(a: &st::Assignment) -> gtk::Label {
     if a.excused {
         return pill("excused", "muted");
@@ -143,7 +150,7 @@ pub fn assignment_pill(a: &st::Assignment) -> gtk::Label {
     pill("todo", "warn")
 }
 
-/// "5 / 5" or "- / 5" — the Score column in Canvas.
+/// "5 / 5" or "- / 5".
 pub fn score_text(a: &st::Assignment) -> String {
     let points = a
         .points_possible
@@ -163,7 +170,7 @@ fn trim_number(value: f64) -> String {
     }
 }
 
-/// A small "icon + count" chip for a course card.
+/// A small "icon + count" chip.
 pub fn count_chip(icon: &str, count: usize) -> gtk::Box {
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
     let image = gtk::Image::from_icon_name(icon);
@@ -178,56 +185,7 @@ pub fn count_chip(icon: &str, count: usize) -> gtk::Box {
     row
 }
 
-/// A course card, as on the Canvas dashboard.
-pub fn course_card(course: &st::Course, announcements: usize, assignments: usize) -> gtk::Button {
-    let index = accent_index(&course.canvas_id);
-    let card = gtk::Button::new();
-    card.add_css_class("flat");
-    card.add_css_class("course-card");
-    card.set_hexpand(true);
-
-    let outer = gtk::Box::new(gtk::Orientation::Vertical, 0);
-
-    let strip = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    strip.set_height_request(6);
-    strip.add_css_class(&format!("accent-strip-{index}"));
-    outer.append(&strip);
-
-    let body = gtk::Box::new(gtk::Orientation::Vertical, 2);
-    body.add_css_class("card-body");
-
-    let name = gtk::Label::new(Some(&course.name));
-    name.set_xalign(0.0);
-    name.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    name.add_css_class("card-title");
-    body.append(&name);
-
-    let title = gtk::Label::new(Some(&course.title));
-    title.set_xalign(0.0);
-    title.set_wrap(true);
-    title.set_lines(2);
-    title.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    body.append(&title);
-
-    let term = gtk::Label::new(Some(course.term.as_deref().unwrap_or("")));
-    term.set_xalign(0.0);
-    term.add_css_class("tiny");
-    term.add_css_class("muted");
-    term.set_margin_top(4);
-    body.append(&term);
-
-    let icons = gtk::Box::new(gtk::Orientation::Horizontal, 16);
-    icons.set_margin_top(8);
-    icons.append(&count_chip("chat-bubbles-symbolic", announcements));
-    icons.append(&count_chip("document-edit-symbolic", assignments));
-    body.append(&icons);
-
-    outer.append(&body);
-    card.set_child(Some(&outer));
-    card
-}
-
-/// A "To Do" entry, as in the Canvas right rail.
+/// A "To Do" entry.
 pub fn todo_row(title: &str, course: &str, detail: &str) -> adw::ActionRow {
     let row = adw::ActionRow::new();
     row.set_title(&gtk::glib::markup_escape_text(title));

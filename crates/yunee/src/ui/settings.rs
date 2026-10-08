@@ -44,7 +44,7 @@ pub fn render(ui: &Rc<Ui>) {
                     ui.state.clear_connection();
                     ui.toast("Disconnected from Canvas.");
                     ui.reload_all();
-                    ui.show_page("dashboard", "Dashboard", "");
+                    ui.show_dashboard();
                 });
             }
             connection_group.add(&row);

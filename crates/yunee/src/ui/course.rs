@@ -1,5 +1,6 @@
-//! A course, laid out like Canvas: a left course nav for the tabs, and the tab
-//! content beside it.
+//! A course. Its sections are peer views, so per the HIG they are a view
+//! switcher in the header bar (kept to five: Overview, Assignments, Modules,
+//! Files, Grades).
 
 use std::rc::Rc;
 
@@ -11,22 +12,14 @@ use crate::format;
 use crate::ui::app::Ui;
 use crate::ui::widgets;
 
-/// Open a course: build its nav + tab stack into the shared course page.
+/// Open a course into the content area.
 pub fn open(ui: &Rc<Ui>, course: st::Course) {
     *ui.selected.borrow_mut() = Some(course.clone());
     widgets::clear_box(&ui.course_page);
 
-    let stack = gtk::Stack::new();
-    stack.set_transition_type(gtk::StackTransitionType::Crossfade);
-    stack.set_hexpand(true);
+    let stack = adw::ViewStack::new();
     stack.set_vexpand(true);
-    add_tab(&stack, "home", "Home", build_home(ui, &course));
-    add_tab(
-        &stack,
-        "announcements",
-        "Announcements",
-        build_announcements(ui, &course),
-    );
+    add_tab(&stack, "overview", "Overview", build_overview(ui, &course));
     add_tab(
         &stack,
         "assignments",
@@ -37,22 +30,20 @@ pub fn open(ui: &Rc<Ui>, course: st::Course) {
     add_tab(&stack, "files", "Files", build_files(ui, &course));
     add_tab(&stack, "grades", "Grades", build_grades(ui, &course));
 
-    let nav = gtk::StackSidebar::new();
-    nav.set_stack(&stack);
-    nav.set_size_request(212, -1);
-    nav.set_vexpand(true);
-    nav.add_css_class("course-nav");
+    let switcher = adw::ViewSwitcher::new();
+    switcher.set_policy(adw::ViewSwitcherPolicy::Wide);
+    switcher.set_stack(Some(&stack));
 
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    row.append(&nav);
-    row.append(&stack);
-    row.set_vexpand(true);
+    ui.course_page.append(&stack);
+    ui.set_header_widget(&switcher);
+    ui.content.set_visible_child_name("course");
+    ui.window.set_title(Some(&course.name));
+    ui.split.set_show_content(true);
 
-    ui.course_page.append(&row);
-    ui.show_page("course", &course.name, "Course");
+    let _ = course;
 }
 
-fn add_tab(stack: &gtk::Stack, name: &str, title: &str, content: gtk::Box) {
+fn add_tab(stack: &adw::ViewStack, name: &str, title: &str, content: gtk::Box) {
     content.set_margin_top(20);
     content.set_margin_bottom(28);
     content.set_margin_start(24);
@@ -102,10 +93,10 @@ fn announcement_with_read(
 }
 
 // --------------------------------------------------------------------------
-// Home
+// Overview
 // --------------------------------------------------------------------------
 
-fn build_home(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
+fn build_overview(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 8);
     page.append(&heading(&course.title));
 
@@ -115,6 +106,13 @@ fn build_home(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
     }
     if let Some(term) = &course.term {
         bits.push(term.clone());
+    }
+    if let Some(grade) = &course.current_grade {
+        let score = course
+            .current_score
+            .map(|s| format!(" ({s:.1}%)"))
+            .unwrap_or_default();
+        bits.push(format!("Grade {grade}{score}"));
     }
     if !bits.is_empty() {
         let sub = gtk::Label::new(Some(&bits.join("  ·  ")));
@@ -154,40 +152,13 @@ fn build_home(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
         .store
         .list_announcements(course.id)
         .unwrap_or_default();
-    page.append(&widgets::section("Recent announcements"));
+    page.append(&widgets::section("Announcements"));
     if announcements.is_empty() {
         page.append(&dim("No announcements."));
     } else {
-        for a in announcements.iter().take(4) {
+        for a in &announcements {
             page.append(&announcement_with_read(ui, course, a));
         }
-    }
-    page
-}
-
-// --------------------------------------------------------------------------
-// Announcements
-// --------------------------------------------------------------------------
-
-fn build_announcements(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
-    let page = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    page.append(&heading("Announcements"));
-
-    let announcements = ui
-        .state
-        .store
-        .list_announcements(course.id)
-        .unwrap_or_default();
-    if announcements.is_empty() {
-        page.append(&widgets::empty_state(
-            "chat-bubbles-symbolic",
-            "No announcements",
-            "This course has not posted any announcements.",
-        ));
-        return page;
-    }
-    for a in &announcements {
-        page.append(&announcement_with_read(ui, course, a));
     }
     page
 }

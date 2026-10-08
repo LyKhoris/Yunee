@@ -1,6 +1,6 @@
-//! The application shell, laid out like Canvas: a dark global navigation rail
-//! on the left and a content stack that holds the dashboard, the course pages,
-//! and settings.
+//! The application shell, following the GNOME HIG: a sidebar of dynamic
+//! locations (dashboard + courses + settings) and a content area whose header
+//! carries a view switcher for a course's sections.
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -31,13 +31,14 @@ pub struct Ui {
     pub(crate) window: adw::ApplicationWindow,
     pub(crate) toasts: adw::ToastOverlay,
     pub(crate) split: adw::NavigationSplitView,
+    pub(crate) sidebar: gtk::ListBox,
     pub(crate) content: gtk::Stack,
+    pub(crate) content_header: adw::HeaderBar,
     pub(crate) content_title: adw::WindowTitle,
     pub(crate) selected: RefCell<Option<st::Course>>,
     /// Courses whose files we have already tried to load on demand.
     pub(crate) files_attempted: RefCell<HashSet<st::LocalId>>,
     pub(crate) dashboard_page: gtk::Box,
-    pub(crate) courses_page: gtk::Box,
     pub(crate) course_page: gtk::Box,
     pub(crate) settings_page: gtk::Box,
 }
@@ -49,8 +50,8 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     let window = adw::ApplicationWindow::builder()
         .application(app)
         .title("Yunee")
-        .default_width(1180)
-        .default_height(780)
+        .default_width(1120)
+        .default_height(760)
         .build();
 
     let store = match Store::open(&paths::db_path()) {
@@ -59,23 +60,23 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     };
     let state = Arc::new(AppState::new(store));
 
-    // --- global rail (Canvas's left navigation) ---
-    let rail = gtk::ListBox::new();
-    rail.set_selection_mode(gtk::SelectionMode::Single);
-    rail.add_css_class("navigation-sidebar");
-    rail.append(&rail_mark());
-    for (icon, label) in [
-        ("view-grid-symbolic", "Dashboard"),
-        ("x-office-calendar-symbolic", "Courses"),
-        ("emblem-system-symbolic", "Settings"),
-        ("help-about-symbolic", "About"),
-    ] {
-        rail.append(&rail_row(icon, label));
-    }
-    let rail_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    rail_box.set_width_request(88);
-    rail_box.append(&rail);
-    let rail_page = adw::NavigationPage::new(&rail_box, "Yunee");
+    // --- sidebar: dynamic locations (dashboard, courses, settings) ---
+    let sidebar_title = adw::WindowTitle::new("Yunee", "");
+    let sidebar_header = adw::HeaderBar::new();
+    sidebar_header.set_title_widget(Some(&sidebar_title));
+
+    let sidebar = gtk::ListBox::new();
+    sidebar.add_css_class("navigation-sidebar");
+    sidebar.set_selection_mode(gtk::SelectionMode::Single);
+    let sidebar_scroll = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .vexpand(true)
+        .child(&sidebar)
+        .build();
+    let sidebar_toolbar = adw::ToolbarView::new();
+    sidebar_toolbar.add_top_bar(&sidebar_header);
+    sidebar_toolbar.set_content(Some(&sidebar_scroll));
+    let sidebar_page = adw::NavigationPage::new(&sidebar_toolbar, "Yunee");
 
     // --- content ---
     let content_title = adw::WindowTitle::new("Dashboard", "");
@@ -99,11 +100,10 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     menu_button.add_css_class("flat");
     content_header.pack_end(&menu_button);
 
-    let dashboard_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
-    let courses_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
+    let dashboard_page = gtk::Box::new(gtk::Orientation::Vertical, 8);
     let course_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    let settings_page = gtk::Box::new(gtk::Orientation::Vertical, 14);
-    for page in [&dashboard_page, &courses_page, &settings_page] {
+    let settings_page = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    for page in [&dashboard_page, &settings_page] {
         page.set_margin_top(18);
         page.set_margin_bottom(24);
         page.set_margin_start(20);
@@ -113,7 +113,6 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     let content = gtk::Stack::new();
     content.set_transition_type(gtk::StackTransitionType::Crossfade);
     content.add_titled(&scroll(&dashboard_page), Some("dashboard"), "Dashboard");
-    content.add_titled(&scroll(&courses_page), Some("courses"), "Courses");
     content.add_titled(&course_page, Some("course"), "Course");
     content.add_titled(&scroll(&settings_page), Some("settings"), "Settings");
 
@@ -123,10 +122,10 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     let content_nav = adw::NavigationPage::new(&content_toolbar, "Content");
 
     let split = adw::NavigationSplitView::new();
-    split.set_sidebar(Some(&rail_page));
+    split.set_sidebar(Some(&sidebar_page));
     split.set_content(Some(&content_nav));
-    split.set_min_sidebar_width(88.0);
-    split.set_max_sidebar_width(88.0);
+    split.set_min_sidebar_width(220.0);
+    split.set_max_sidebar_width(320.0);
 
     let toasts = adw::ToastOverlay::new();
     toasts.set_child(Some(&split));
@@ -137,44 +136,26 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         window: window.clone(),
         toasts,
         split,
+        sidebar: sidebar.clone(),
         content,
+        content_header,
         content_title,
         selected: RefCell::new(None),
         files_attempted: RefCell::new(HashSet::new()),
         dashboard_page,
-        courses_page,
         course_page,
         settings_page,
     });
 
-    // Rail navigation.
-    {
-        let ui = ui.clone();
-        rail.connect_row_selected(move |_, row| {
-            let Some(row) = row else { return };
-            match row.index() {
-                1 => ui.show_page("dashboard", "Dashboard", ""),
-                2 => {
-                    ui.reload_courses();
-                    ui.show_page("courses", "Courses", "");
-                }
-                3 => {
-                    ui.reload_settings();
-                    ui.show_page("settings", "Settings", "");
-                }
-                4 => ui.show_about(),
-                _ => {}
-            }
-        });
-    }
+    ui.reload_sidebar();
+    ui.reload_dashboard();
+    ui.reload_settings();
+    ui.show_dashboard();
 
-    // Header refresh.
     {
         let ui = ui.clone();
         refresh.connect_clicked(move |_| ui.sync_now());
     }
-
-    // Menu actions.
     for (name, handler) in [
         ("sync", {
             let ui = ui.clone();
@@ -188,7 +169,7 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
             let ui = ui.clone();
             Rc::new(move || {
                 ui.reload_settings();
-                ui.show_page("settings", "Settings", "");
+                ui.show_settings();
             })
         }),
         ("about", {
@@ -201,44 +182,12 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         app.add_action(&action);
     }
 
-    ui.reload_dashboard();
-    ui.reload_settings();
-    ui.content.set_visible_child_name("dashboard");
-
     if ui.state.connection().is_some() {
         ui.sync_now();
     }
 
     window.present();
     window
-}
-
-fn rail_mark() -> gtk::ListBoxRow {
-    let row = gtk::ListBoxRow::new();
-    row.set_selectable(false);
-    row.set_activatable(false);
-    let label = gtk::Label::new(Some("Yunee"));
-    label.add_css_class("rail-title");
-    label.set_margin_top(16);
-    label.set_margin_bottom(10);
-    row.set_child(Some(&label));
-    row
-}
-
-fn rail_row(icon: &str, text: &str) -> gtk::ListBoxRow {
-    let row = gtk::ListBoxRow::new();
-    let column = gtk::Box::new(gtk::Orientation::Vertical, 2);
-    column.set_margin_top(9);
-    column.set_margin_bottom(9);
-    column.set_halign(gtk::Align::Center);
-    let image = gtk::Image::from_icon_name(icon);
-    image.set_pixel_size(20);
-    let label = gtk::Label::new(Some(text));
-    label.add_css_class("rail-label");
-    column.append(&image);
-    column.append(&label);
-    row.set_child(Some(&column));
-    row
 }
 
 fn scroll(child: &impl IsA<gtk::Widget>) -> gtk::ScrolledWindow {
@@ -249,24 +198,76 @@ fn scroll(child: &impl IsA<gtk::Widget>) -> gtk::ScrolledWindow {
         .build()
 }
 
+fn sidebar_row(
+    icon: &str,
+    title: &str,
+    subtitle: &str,
+    prefix: Option<gtk::Widget>,
+) -> adw::ActionRow {
+    let row = adw::ActionRow::builder()
+        .title(title)
+        .subtitle(subtitle)
+        .activatable(true)
+        .build();
+    if let Some(prefix) = prefix {
+        row.add_prefix(&prefix);
+    } else {
+        row.add_prefix(&gtk::Image::from_icon_name(icon));
+    }
+    row
+}
+
+fn section_header(text: &str) -> gtk::ListBoxRow {
+    let label = gtk::Label::new(Some(text));
+    label.set_xalign(0.0);
+    label.add_css_class("section");
+    label.set_margin_top(10);
+    label.set_margin_bottom(4);
+    label.set_margin_start(12);
+    let row = gtk::ListBoxRow::new();
+    row.set_selectable(false);
+    row.set_activatable(false);
+    row.set_child(Some(&label));
+    row
+}
+
 impl Ui {
     pub(crate) fn toast(&self, message: &str) {
         self.toasts.add_toast(adw::Toast::new(message));
     }
 
-    pub(crate) fn show_page(&self, name: &str, title: &str, subtitle: &str) {
-        self.content.set_visible_child_name(name);
-        self.content_title.set_title(title);
-        self.content_title.set_subtitle(subtitle);
+    /// Put a widget in the content header bar's title slot (a view switcher for
+    /// a course, a plain title otherwise).
+    pub(crate) fn set_header_widget(&self, widget: &impl IsA<gtk::Widget>) {
+        self.content_header.set_title_widget(Some(widget));
+    }
+
+    pub(crate) fn show_dashboard(&self) {
+        self.content.set_visible_child_name("dashboard");
+        self.set_header_widget(&self.content_title);
+        self.content_title.set_title("Dashboard");
+        self.content_title.set_subtitle("");
+        self.window.set_title(Some("Yunee"));
         self.split.set_show_content(true);
+    }
+
+    pub(crate) fn show_settings(&self) {
+        self.content.set_visible_child_name("settings");
+        self.set_header_widget(&self.content_title);
+        self.content_title.set_title("Settings");
+        self.content_title.set_subtitle("");
+        self.window.set_title(Some("Yunee"));
+        self.split.set_show_content(true);
+    }
+
+    pub(crate) fn show_course(self: &Rc<Self>, course: st::Course) {
+        course::open(self, course);
     }
 
     /// Reload every synced view from the local store.
     pub(crate) fn reload_all(self: &Rc<Self>) {
+        self.reload_sidebar();
         self.reload_dashboard();
-        if self.content.visible_child_name().as_deref() == Some("courses") {
-            self.reload_courses();
-        }
         if let Some(course) = self.selected.borrow().clone() {
             course::open(self, course);
         }
@@ -277,44 +278,112 @@ impl Ui {
         dashboard::render(self);
     }
 
-    pub(crate) fn reload_courses(self: &Rc<Self>) {
-        dashboard::render_courses(self);
-    }
-
     pub(crate) fn reload_settings(self: &Rc<Self>) {
         settings::render(self);
     }
 
-    pub(crate) fn open_course(self: &Rc<Self>, course: st::Course) {
-        course::open(self, course);
-    }
+    /// Rebuild the sidebar: Dashboard, the courses, then Settings and About.
+    pub(crate) fn reload_sidebar(self: &Rc<Self>) {
+        widgets::clear_list(&self.sidebar);
 
-    /// Load one course's files on demand (the Files tab is the only caller).
-    pub(crate) fn load_course_files(self: &Rc<Self>, course: st::Course) {
-        let Some(connection) = self.state.connection() else {
-            return;
-        };
-        let store = self.state.store.clone();
-        let ui = self.clone();
-        let canvas_id = course.canvas_id.clone();
-        let local_id = course.id;
-        let (tx, rx) = async_channel::bounded(1);
-        std::thread::spawn(move || {
-            let result = runtime().block_on(sync::sync_course_files(
-                &store,
-                &connection,
-                &canvas_id,
-                local_id,
-            ));
-            let _ = tx.send_blocking(result);
-        });
-        glib::MainContext::default().spawn_local(async move {
-            match rx.recv().await {
-                Ok(Ok(_n)) => course::open(&ui, course),
-                Ok(Err(e)) => ui.toast(&format!("Could not load files: {e}")),
-                Err(_) => {}
+        let dashboard = sidebar_row(
+            "view-grid-symbolic",
+            "Dashboard",
+            "What's due and new",
+            None,
+        );
+        {
+            let ui = self.clone();
+            dashboard.connect_activated(move |_| ui.show_dashboard());
+        }
+        self.sidebar.append(&dashboard);
+
+        self.sidebar
+            .append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        self.sidebar.append(&section_header("Courses"));
+
+        let courses = self.state.store.list_courses().unwrap_or_default();
+        if courses.is_empty() {
+            let hint = gtk::Label::new(Some("Sync to add your courses"));
+            hint.set_xalign(0.0);
+            hint.add_css_class("dim-label");
+            hint.set_margin_top(6);
+            hint.set_margin_bottom(6);
+            hint.set_margin_start(12);
+            let row = gtk::ListBoxRow::new();
+            row.set_selectable(false);
+            row.set_activatable(false);
+            row.set_child(Some(&hint));
+            self.sidebar.append(&row);
+        }
+        for course in &courses {
+            let subtitle = match (&course.term, &course.professor) {
+                (Some(term), Some(prof)) => format!("{term}  ·  {prof}"),
+                (Some(term), None) => term.clone(),
+                (None, Some(prof)) => prof.clone(),
+                (None, None) => String::new(),
+            };
+            let row = sidebar_row(
+                "",
+                &course.name,
+                &subtitle,
+                Some(widgets::accent_dot(widgets::accent_index(&course.canvas_id)).upcast()),
+            );
+
+            let open = self
+                .state
+                .store
+                .list_assignments(course.id)
+                .map(|v| v.iter().filter(|a| !a.is_submitted()).count())
+                .unwrap_or(0);
+            let unread = self
+                .state
+                .store
+                .list_announcements(course.id)
+                .map(|v| v.iter().filter(|a| a.is_unread()).count())
+                .unwrap_or(0);
+            if open > 0 || unread > 0 {
+                let chips = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+                chips.set_valign(gtk::Align::Center);
+                if open > 0 {
+                    chips.append(&widgets::count_chip("document-edit-symbolic", open));
+                }
+                if unread > 0 {
+                    chips.append(&widgets::count_chip("chat-bubbles-symbolic", unread));
+                }
+                row.add_suffix(&chips);
             }
-        });
+
+            let ui = self.clone();
+            let course = course.clone();
+            row.connect_activated(move |_| ui.show_course(course.clone()));
+            self.sidebar.append(&row);
+        }
+
+        self.sidebar
+            .append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+
+        let settings_row = sidebar_row(
+            "emblem-system-symbolic",
+            "Settings",
+            "Canvas connection and sync",
+            None,
+        );
+        {
+            let ui = self.clone();
+            settings_row.connect_activated(move |_| {
+                ui.reload_settings();
+                ui.show_settings();
+            });
+        }
+        self.sidebar.append(&settings_row);
+
+        let about_row = sidebar_row("help-about-symbolic", "About", "Version and source", None);
+        {
+            let ui = self.clone();
+            about_row.connect_activated(move |_| ui.show_about());
+        }
+        self.sidebar.append(&about_row);
     }
 
     // ------------------------------------------------------------------
@@ -418,6 +487,7 @@ impl Ui {
             return;
         }
         self.reload_dashboard();
+        self.reload_sidebar();
         if let Some(course) = self.selected.borrow().clone() {
             course::open(self, course);
         }
@@ -431,6 +501,34 @@ impl Ui {
                     let _ =
                         runtime().block_on(client.mark_topic_read(&course_canvas_id, &canvas_id));
                 }
+            }
+        });
+    }
+
+    /// Load one course's files on demand (the Files tab is the only caller).
+    pub(crate) fn load_course_files(self: &Rc<Self>, course: st::Course) {
+        let Some(connection) = self.state.connection() else {
+            return;
+        };
+        let store = self.state.store.clone();
+        let ui = self.clone();
+        let canvas_id = course.canvas_id.clone();
+        let local_id = course.id;
+        let (tx, rx) = async_channel::bounded(1);
+        std::thread::spawn(move || {
+            let result = runtime().block_on(sync::sync_course_files(
+                &store,
+                &connection,
+                &canvas_id,
+                local_id,
+            ));
+            let _ = tx.send_blocking(result);
+        });
+        glib::MainContext::default().spawn_local(async move {
+            match rx.recv().await {
+                Ok(Ok(_n)) => course::open(&ui, course),
+                Ok(Err(e)) => ui.toast(&format!("Could not load files: {e}")),
+                Err(_) => {}
             }
         });
     }
@@ -482,7 +580,9 @@ impl Ui {
                         .state
                         .store
                         .set_file_local_path(&canvas_id, &path.to_string_lossy());
-                    ui.reload_all();
+                    if let Some(course) = ui.selected.borrow().clone() {
+                        course::open(&ui, course);
+                    }
                     ui.toast(&format!("Saved to {}", path.display()));
                 }
                 Ok(Err(e)) => ui.toast(&format!("Download failed: {e}")),
