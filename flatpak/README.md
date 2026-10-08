@@ -52,19 +52,14 @@ flatpak install yunee-0.1.0-beta.1.flatpak
 Releases are cut by pushing a tag (`v*`); `.github/workflows/release.yml`
 builds the bundle and attaches it to the GitHub release.
 
-## Updates
+## Getting a newer build
 
-There is **no Flatpak repository and no update check**. Each release carries the
-`.flatpak` bundle as an asset, and **Settings → Updates** has a *Latest release*
-button that opens the releases page on GitHub in the browser. Download the newer
-bundle there and install it:
+**Settings → Updates** has a *Latest release* button that opens the releases page
+on GitHub in the browser; download the newer `.flatpak` there and install it:
 
 ```bash
 flatpak install --user ./yunee-<version>.flatpak
 ```
-
-(The app does not call the GitHub API: the repository is private, so a check
-would need credentials the app does not ask for.)
 
 ## Permissions
 
