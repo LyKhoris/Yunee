@@ -1,15 +1,12 @@
 name: Release
 
-# Builds the Flatpak, attaches the bundle to a GitHub release, and publishes a
-# Flatpak repository to GitHub Pages so installed copies auto-update.
+# Builds the Flatpak and attaches the bundle to a GitHub release.
 #
 # Push a tag (e.g. `git tag v0.1.0-beta.1 && git push origin v0.1.0-beta.1`).
 #
-# Users install once:
-#   flatpak remote-add --if-not-exists --no-gpg-verify yunee \
-#       https://<owner>.github.io/<repo>/yunee.flatpakrepo
-#   flatpak install yunee io.github.LyKhoris.Yunee
-# ...and from then on `flatpak update` / GNOME Software keeps it current.
+# Auto-updates are not wired up yet: a Flatpak repository needs a public home
+# (GitHub Pages needs a public repo, or Flathub). Until then, users install the
+# bundle from the release and re-download to update.
 
 on:
   push:
@@ -19,8 +16,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 jobs:
   flatpak:
@@ -46,33 +41,19 @@ jobs:
       - name: Vendor crates
         run: cargo vendor vendor
 
-      - name: Build the Flatpak into an OSTree repo
+      - name: Build the Flatpak
         run: |
           flatpak-builder --user --force-clean \
             --install-deps-from=flathub \
             --repo=repo build-dir flatpak/io.github.LyKhoris.Yunee.yml
-          flatpak build-update-repo repo \
-            --title="Yunee" \
-            --comment="Local, single-user Canvas client for GNOME" \
-            --default-branch=master
-
-      - name: Bundle for the release
-        run: |
-          flatpak build-bundle repo "yunee-${GITHUB_REF_NAME:-dev}.flatpak" \
+          flatpak build-bundle repo "yunee-${GITHUB_REF_NAME#v}.flatpak" \
             io.github.LyKhoris.Yunee
 
-      - name: Upload the bundle
+      - name: Upload the bundle as an artifact
         uses: actions/upload-artifact@v4
         with:
           name: yunee-flatpak
           path: "*.flatpak"
-          if-no-files-found: error
-
-      - name: Upload the Flatpak repo
-        uses: actions/upload-artifact@v4
-        with:
-          name: yunee-repo
-          path: repo
           if-no-files-found: error
 
       - name: Attach the bundle to the release
@@ -82,39 +63,3 @@ jobs:
           files: "*.flatpak"
           prerelease: true
           generate_release_notes: true
-
-  pages:
-    name: Publish Flatpak repo
-    needs: flatpak
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: yunee-repo
-          path: public/repo
-
-      - name: Write the .flatpakrepo file
-        run: |
-          OWNER="${GITHUB_REPOSITORY_OWNER}"
-          REPO="${GITHUB_REPOSITORY#*/}"
-          mkdir -p public
-          cat > public/yunee.flatpakrepo <<EOF
-          [Flatpak Repo]
-          Title=Yunee
-          Url=https://${OWNER,,}.github.io/${REPO}/repo/
-          Homepage=https://github.com/${GITHUB_REPOSITORY}
-          Comment=Local, single-user Canvas client for GNOME
-          Description=Yunee is a local, single-user Canvas client for GNOME: courses, assignments, announcements, modules, files and grades, synced to a local SQLite database. No account, no hosting.
-          Icon=https://${OWNER,,}.github.io/${REPO}/repo/
-          EOF
-
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: public
-      - id: deployment
-        uses: actions/deploy-pages@v4

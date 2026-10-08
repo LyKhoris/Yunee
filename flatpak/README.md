@@ -52,24 +52,29 @@ flatpak install yunee-0.1.0-beta.1.flatpak
 Releases are cut by pushing a tag (`v*`); `.github/workflows/release.yml`
 builds the bundle and attaches it to the GitHub release.
 
-## Automatic updates (GitHub Pages remote)
+## Distribution (private)
 
-A release also publishes a Flatpak **repository** to GitHub Pages, so an
-installed copy updates itself with `flatpak update` and GNOME Software. Add the
-remote once:
+Nothing about Yunee is public: the source repo is private, and there is no
+Flathub or GitHub Pages listing. The `.flatpak` bundle attached to a (private)
+GitHub release is only visible to collaborators.
 
-```bash
-flatpak remote-add --if-not-exists --no-gpg-verify yunee \
-    https://lykhoris.github.io/Yunee/yunee.flatpakrepo
+Because a private repo cannot serve a Flatpak remote (flatpak cannot
+authenticate to it), **automatic updates have one home: your own machine.**
+Two options:
 
-flatpak install yunee io.github.LyKhoris.Yunee
-```
+- **Build and install locally** (above). Update by rebuilding.
+- **A private Flatpak repo on your own host** — e.g. on the Umbrel, reachable
+  over Tailscale. Build with `--repo=repo`, publish `repo/` and a
+  `yunee.flatpakrepo` file, and add it once:
 
-From then on `flatpak update` keeps it current.
+  ```bash
+  flatpak remote-add --if-not-exists --no-gpg-verify yunee \
+      http://<your-host>/yunee.flatpakrepo
+  ```
 
-The repository is **unsigned** for now, hence `--no-gpg-verify`. Signing it with
-a GPG key (stored as a CI secret) removes that flag; publishing to Flathub would
-make it unnecessary, since everyone already has the Flathub remote.
+  `flatpak update` then keeps every device on the tailnet current. (Over plain
+  HTTP this must be `--no-gpg-verify`; a TLS cert or a GPG-signed repo removes
+  that flag.)
 
 ## Permissions
 
