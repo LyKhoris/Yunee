@@ -5,15 +5,18 @@
 #   flatpak-builder --user --install --force-clean build-dir \
 #       flatpak/io.github.LyKhoris.Yunee.yml
 #
-# `flatpak/cargo-sources.json` is generated from Cargo.lock; see
-# flatpak/README.md for how to (re)generate it. The build fails until it exists.
+# Build a single-file bundle for a GitHub release:
 #
-# Runtime: org.gnome.Platform//51 is the newest GNOME runtime on Flathub
-# (`flatpak remote-ls flathub | grep org.gnome.Platform | tail -5`). It ships
-# GTK 4.24 and libadwaita 1.10, which satisfy the >= 4.22 / >= 1.9 features that
-# Cargo.toml pins. The development host (Fedora 44) carries GTK 4.22 /
-# libadwaita 1.9, which corresponds to the GNOME 50 runtime; drop both
-# `runtime-version` and `sdk` to '50' together if that exact baseline is needed.
+#   flatpak-builder --user --force-clean --repo=repo build-dir \
+#       flatpak/io.github.LyKhoris.Yunee.yml
+#   flatpak build-bundle repo yunee.flatpak io.github.LyKhoris.Yunee
+#
+# Runtime: org.gnome.Platform//51 ships GTK 4.24 and libadwaita 1.10, which
+# satisfy the >= 4.22 / >= 1.9 features Cargo.toml pins.
+#
+# NOTE: this build fetches crates from crates.io during the build (flatpak-builder
+# allows network). Submitting to Flathub would require vendoring the crates into
+# `cargo-sources.json` and building offline; that is not done here.
 
 app-id: io.github.LyKhoris.Yunee
 runtime: org.gnome.Platform
@@ -45,9 +48,8 @@ modules:
       append-path: /usr/lib/sdk/rust-stable/bin
       env:
         CARGO_HOME: /run/build/yunee/cargo
-        CARGO_NET_OFFLINE: 'true'
     build-commands:
-      - cargo build --release --offline --manifest-path Cargo.toml
+      - cargo build --release --locked --manifest-path Cargo.toml
       - install -Dm755 target/release/yunee /app/bin/yunee
       - install -Dm644 data/io.github.LyKhoris.Yunee.desktop /app/share/applications/io.github.LyKhoris.Yunee.desktop
       - install -Dm644 data/io.github.LyKhoris.Yunee.metainfo.xml /app/share/metainfo/io.github.LyKhoris.Yunee.metainfo.xml
@@ -63,5 +65,4 @@ modules:
           - build-dir
           - repo
           - .flatpak-builder
-      # A source list (JSON) generated from Cargo.lock. See README.md.
-      - cargo-sources.json
+          - flatpak

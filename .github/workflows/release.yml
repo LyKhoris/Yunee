@@ -1,0 +1,55 @@
+name: Release
+
+# Builds the Flatpak and attaches it to a GitHub release.
+#
+# Push a tag (e.g. `git tag v0.1.0-beta.1 && git push origin v0.1.0-beta.1`) to
+# cut a release. Manual runs build the bundle and leave it as an artifact.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  flatpak:
+    name: Build Flatpak
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install flatpak
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+
+      - name: Add Flathub
+        run: |
+          sudo flatpak remote-add --if-not-exists flathub \
+            https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Build the Flatpak
+        run: |
+          flatpak-builder --user --force-clean \
+            --install-deps-from=flathub \
+            --repo=repo build-dir flatpak/io.github.LyKhoris.Yunee.yml
+          flatpak build-bundle repo "yunee-${GITHUB_REF_NAME:-dev}.flatpak" \
+            io.github.LyKhoris.Yunee
+
+      - name: Upload the bundle as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: yunee-flatpak
+          path: "*.flatpak"
+          if-no-files-found: error
+
+      - name: Attach the bundle to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "*.flatpak"
+          prerelease: true
+          generate_release_notes: true
