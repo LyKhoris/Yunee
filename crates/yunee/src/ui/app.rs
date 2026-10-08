@@ -124,8 +124,8 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     let split = adw::NavigationSplitView::new();
     split.set_sidebar(Some(&sidebar_page));
     split.set_content(Some(&content_nav));
-    split.set_min_sidebar_width(220.0);
-    split.set_max_sidebar_width(320.0);
+    split.set_min_sidebar_width(240.0);
+    split.set_max_sidebar_width(340.0);
 
     let toasts = adw::ToastOverlay::new();
     toasts.set_child(Some(&split));
@@ -298,8 +298,6 @@ impl Ui {
         }
         self.sidebar.append(&dashboard);
 
-        self.sidebar
-            .append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         self.sidebar.append(&section_header("Courses"));
 
         let courses = self.state.store.list_courses().unwrap_or_default();
@@ -325,7 +323,7 @@ impl Ui {
             };
             let row = sidebar_row(
                 "",
-                &course.name,
+                &short_course_name(&course.name),
                 &subtitle,
                 Some(widgets::accent_dot(widgets::accent_index(&course.canvas_id)).upcast()),
             );
@@ -360,8 +358,7 @@ impl Ui {
             self.sidebar.append(&row);
         }
 
-        self.sidebar
-            .append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        self.sidebar.append(&section_header(""));
 
         let settings_row = sidebar_row(
             "emblem-system-symbolic",
@@ -589,6 +586,32 @@ impl Ui {
                 Err(_) => {}
             }
         });
+    }
+}
+
+/// A compact course label for the sidebar: drop the term prefix and the
+/// trailing CRN, e.g. "Fall 2026 ANTH 300-01 16568" → "ANTH 300-01".
+fn short_course_name(name: &str) -> String {
+    const SEASONS: [&str; 4] = ["Fall", "Spring", "Summer", "Winter"];
+    let mut rest = name;
+    let mut parts = name.splitn(3, ' ');
+    if let (Some(season), Some(year), Some(tail)) = (parts.next(), parts.next(), parts.next()) {
+        if SEASONS.contains(&season) && year.len() == 4 && year.chars().all(|c| c.is_ascii_digit())
+        {
+            rest = tail;
+        }
+    }
+    let mut tokens: Vec<&str> = rest.split_whitespace().collect();
+    if let Some(last) = tokens.last() {
+        if last.len() >= 3 && last.chars().all(|c| c.is_ascii_digit()) {
+            tokens.pop();
+        }
+    }
+    let short = tokens.join(" ");
+    if short.is_empty() {
+        name.to_string()
+    } else {
+        short
     }
 }
 
