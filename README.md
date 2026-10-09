@@ -12,25 +12,22 @@ verified quotes → chat) is planned for a later milestone, not v1.
 
 ## Install
 
-Yunee ships from a signed Flatpak repository. Install once:
+Yunee ships from a signed Flatpak repository at
+<https://lykhoris.github.io/Yunee/>. Install it once, then update normally:
 
 ```bash
+# Install (once)
 flatpak install --from https://lykhoris.github.io/Yunee/io.github.LyKhoris.Yunee.flatpakref
-```
 
-That adds the remote, imports the signing key, and installs the app. Flatpak
-fetches `org.gnome.Platform//51` from Flathub if it is not already present.
-
-### Updating
-
-```bash
+# Update later
 flatpak update
 ```
 
-…or GNOME Software's **Updates** page. Both work because the app is installed
-from the remote, so there is nothing to re-download.
+That adds the remote, imports the signing key, and installs the app; Flatpak
+fetches `org.gnome.Platform//51` from Flathub if it is not already present. You
+can also update from GNOME Software's **Updates** page.
 
-A standalone `.flatpak` bundle is also attached to each
+A standalone `.flatpak` bundle is attached to each
 [release](https://github.com/LyKhoris/Yunee/releases/latest) for offline installs.
 A bundle never updates in place — it has no remote to compare against — so
 installing a newer one over an existing copy needs `--reinstall`:
