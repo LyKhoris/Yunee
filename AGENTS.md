@@ -171,31 +171,43 @@ locked keyring, a headless session), Yunee falls back to the `0600` file so the
 app stays usable, and says so. The server address is a non-secret setting; the
 token is never written to the database.
 
-## Distribution & updates — decided 2026-10-08
+## Distribution & updates — decided 2026-10-09
 
-Yunee ships as a single-file Flatpak bundle attached to each GitHub release.
-Distribution stays private: there is no Flatpak repository, no remote, and no
-public host.
+Yunee ships from a **signed Flatpak repository** hosted on GitHub Pages at
+`https://lykhoris.github.io/Yunee/`, built and published by
+`.github/workflows/release.yml` on every `v*` tag. The source repo is public,
+because free GitHub Pages requires it.
 
-**A bundle is an installer, not an update channel.** GNOME Software matches the
-bundle to the installed app id and shows it as installed; it never compares
-versions and never offers an update. `flatpak install` also refuses a bundle whose
-commit is already present, and does not compare versions at all — installing an
-older bundle over a newer one succeeds and silently downgrades. Updating is
-therefore an explicit reinstall:
+Install once from the `.flatpakref`, then update normally:
 
 ```
-flatpak install --user --reinstall yunee-<version>.flatpak
+flatpak install --from https://lykhoris.github.io/Yunee/io.github.LyKhoris.Yunee.flatpakref
+flatpak update
 ```
+
+GNOME Software's Updates page shows the app and offers the update button, because
+the app is installed from a remote that publishes newer metadata.
+
+**Why not bundles alone.** A `.flatpak` bundle is an installer, not an update
+channel: GNOME Software shows an installed app as installed and never compares
+versions, and `flatpak install` compares commits, not versions (it will silently
+downgrade). A standalone bundle is still attached to each release as an offline
+fallback, but it never updates in place. This supersedes the 2026-10-08
+bundle-only decision in commit `615da98`.
+
+**Signing.** The repo is signed with a GPG key: the secret half is the
+`FLATPAK_GPG_KEY` Actions secret, the public half is embedded in the
+`.flatpakref`. Losing the secret means every user must re-add the remote. It has
+no expiry.
 
 The release workflow stamps the pushed tag into the workspace version
-(`Cargo.toml`) and the AppStream `<release>`, so every bundle is a distinct
-version: the Settings row (`CARGO_PKG_VERSION`) and `flatpak info` both report it,
-rather than every beta reading `0.1.0`.
+(`Cargo.toml`) and the AppStream `<release>`, so every release is a distinct
+version in both the Settings row (`CARGO_PKG_VERSION`) and `flatpak info`.
 
-A future Flatpak repository — which needs a public static host, or a public
-distribution repo — would restore ordinary `flatpak update` and GNOME Software's
-Updates page. Until then, `--reinstall` is the update path.
+**Rejected:** RPM via COPR — public source would be acceptable, but Fedora's Rust
+packaging wants ~200 crates as separate RPMs, it would not reuse the Flatpak
+build, and it buys nothing the repo does not already do. Also rejected:
+self-hosting the repo on the Umbrel, and Flathub.
 
 ## Build / run / check
 

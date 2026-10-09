@@ -1,19 +1,18 @@
 name: Release
 
-# Builds the Flatpak and attaches the bundle to a GitHub release.
+# Builds the Flatpak, publishes a signed OSTree repo to GitHub Pages, and
+# attaches the bundle + .flatpakref to a GitHub release.
 #
-# Push a tag (e.g. `git tag v0.1.0-beta.4 && git push origin v0.1.0-beta.4`).
+# Push a tag (e.g. `git tag v0.1.0-beta.5 && git push origin v0.1.0-beta.5`).
 #
-# Distribution is bundle-only and private: there is no Flatpak repository and no
-# remote. A `.flatpak` bundle is an installer, not an update channel — GNOME
-# Software shows an installed app as installed and never compares versions, and
-# `flatpak install` refuses a bundle whose commit is already present. Updating is
-# an explicit reinstall:
+# Users install once from the signed repo:
 #
-#   flatpak install --user --reinstall yunee-<version>.flatpak
+#   flatpak install --from https://lykhoris.github.io/Yunee/io.github.LyKhoris.Yunee.flatpakref
 #
-# The bundle's version is stamped from the tag below, so each release carries a
-# distinct version in both the app's Settings row and the Flatpak metadata.
+# and update with `flatpak update` / GNOME Software from then on.
+#
+# Requires: the FLATPAK_GPG_KEY secret (base64 of the ASCII-armored secret key,
+# see flatpak/README.md) and GitHub Pages enabled on the gh-pages branch.
 
 on:
   push:
@@ -23,6 +22,10 @@ on:
 
 permissions:
   contents: write
+
+env:
+  APP_ID: io.github.LyKhoris.Yunee
+  PAGES_URL: https://lykhoris.github.io/Yunee
 
 jobs:
   flatpak:
@@ -34,7 +37,7 @@ jobs:
       - name: Install flatpak
         run: |
           sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder
+          sudo apt-get install -y flatpak flatpak-builder gnupg
 
       - name: Add Flathub (user)
         run: |
@@ -70,45 +73,103 @@ jobs:
           grep -n '^version' Cargo.toml
           grep -n '<release ' data/io.github.LyKhoris.Yunee.metainfo.xml
 
+      # Import the repo signing key. It signs both the exported commits and the
+      # repo summary; clients verify updates against the public half, which is
+      # embedded in the .flatpakref.
+      - name: Import the signing key
+        run: |
+          mkdir -p ~/.gnupg && chmod 700 ~/.gnupg
+          echo "${{ secrets.FLATPAK_GPG_KEY }}" | base64 -d | gpg --batch --import
+          keyid="$(gpg --list-secret-keys --with-colons | awk -F: '/^sec/ {print $5; exit}')"
+          test -n "$keyid" || { echo "::error::no signing key imported"; exit 1; }
+          echo "KEYID=$keyid" >> "$GITHUB_ENV"
+          gpg --list-secret-keys --keyid-format=long
+
       - name: Vendor crates
         run: cargo vendor vendor
 
       - name: Build the Flatpak
         run: |
           flatpak-builder --user --force-clean \
+            --gpg-sign="$KEYID" \
+            --default-branch=stable \
             --install-deps-from=flathub \
             --repo=repo build-dir flatpak/io.github.LyKhoris.Yunee.yml
-          flatpak build-bundle repo "yunee-${{ steps.version.outputs.version }}.flatpak" \
-            io.github.LyKhoris.Yunee
 
-      - name: Upload the bundle as an artifact
+      # Regenerate the summary (signed) and the appstream branch.
+      - name: Sign the repository
+        run: flatpak build-update-repo --gpg-sign="$KEYID" repo
+
+      # A standalone bundle is still attached for offline installs. Bundles do
+      # not update in place; the repo above is the update path. Built before the
+      # publish step so `git init` never runs inside the OSTree repo.
+      - name: Build the single-file bundle
+        run: |
+          flatpak build-bundle repo "yunee-${{ steps.version.outputs.version }}.flatpak" \
+            "${APP_ID}" stable
+
+      - name: Generate the .flatpakref
+        run: |
+          gpg --export --armor "$KEYID" | base64 -w0 > pubkey.b64
+          {
+            echo '[Flatpak Ref]'
+            echo 'Title=Yunee'
+            echo "Name=${APP_ID}"
+            echo 'Branch=stable'
+            echo "Url=${PAGES_URL}/"
+            echo 'RuntimeRepo=https://flathub.org/repo/flathub.flatpakrepo'
+            echo 'IsRuntime=false'
+            printf 'GPGKey=%s\n' "$(cat pubkey.b64)"
+          } > "${APP_ID}.flatpakref"
+          echo "wrote ${APP_ID}.flatpakref"
+
+      # Publish the OSTree repo and the .flatpakref to the gh-pages branch.
+      # GitHub Pages serves them at PAGES_URL.
+      - name: Publish the repository to GitHub Pages
+        run: |
+          cp "${APP_ID}.flatpakref" repo/
+          touch repo/.nojekyll
+          cd repo
+          git init -q -b gh-pages
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -qm "Publish ${APP_ID} ${{ steps.version.outputs.version }}"
+          git push -q --force \
+            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+
+      - name: Upload the artifacts
         uses: actions/upload-artifact@v4
         with:
           name: yunee-flatpak
-          path: "*.flatpak"
+          path: |
+            *.flatpak
+            *.flatpakref
           if-no-files-found: error
 
-      # `body` is pre-pended to the generated notes. Bundles do not update in
-      # place, so the update command is the whole point of this section.
-      - name: Attach the bundle to the release
+      - name: Attach the artifacts to the release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: "*.flatpak"
+          files: |
+            *.flatpak
+            *.flatpakref
           prerelease: true
           generate_release_notes: true
           body: |
             ## Install / update
 
-            Yunee ships as a Flatpak bundle. Bundles install but never update in
-            place, so installing over an existing copy needs `--reinstall`:
+            Install once from the signed repository; updates are then normal:
 
             ```sh
             # First install
-            flatpak install --user yunee-${{ steps.version.outputs.version }}.flatpak
+            flatpak install --from ${{ env.PAGES_URL }}/${{ env.APP_ID }}.flatpakref
 
-            # Update an existing install
-            flatpak install --user --reinstall yunee-${{ steps.version.outputs.version }}.flatpak
+            # Later updates
+            flatpak update
             ```
+
+            A standalone `yunee-${{ steps.version.outputs.version }}.flatpak` is attached
+            for offline installs, but bundles do not update in place.
 
             Requires `org.gnome.Platform//51`.

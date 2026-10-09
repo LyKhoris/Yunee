@@ -12,30 +12,32 @@ verified quotes → chat) is planned for a later milestone, not v1.
 
 ## Install
 
-Download the latest `yunee-<version>.flatpak` from the
-[releases page](https://github.com/LyKhoris/Yunee/releases/latest) and install it
-for your user:
+Yunee ships from a signed Flatpak repository. Install once:
 
 ```bash
-flatpak install --user yunee-<version>.flatpak
+flatpak install --from https://lykhoris.github.io/Yunee/io.github.LyKhoris.Yunee.flatpakref
 ```
 
-It needs `org.gnome.Platform//51` (Flatpak fetches it if you have Flathub added).
+That adds the remote, imports the signing key, and installs the app. Flatpak
+fetches `org.gnome.Platform//51` from Flathub if it is not already present.
 
 ### Updating
 
-A `.flatpak` bundle is an installer, not an update channel: double-clicking a
-newer bundle in GNOME Software shows the app as **already installed** and offers
-nothing, because the bundle has no remote to compare versions against. Updating
-is an explicit reinstall of the newer bundle:
+```bash
+flatpak update
+```
+
+…or GNOME Software's **Updates** page. Both work because the app is installed
+from the remote, so there is nothing to re-download.
+
+A standalone `.flatpak` bundle is also attached to each
+[release](https://github.com/LyKhoris/Yunee/releases/latest) for offline installs.
+A bundle never updates in place — it has no remote to compare against — so
+installing a newer one over an existing copy needs `--reinstall`:
 
 ```bash
 flatpak install --user --reinstall yunee-<version>.flatpak
 ```
-
-`--reinstall` is required. Plain `flatpak install` refuses a bundle whose commit
-is already present, and does not compare versions — it will happily install an
-older bundle over a newer one.
 
 ## Build and run
 
