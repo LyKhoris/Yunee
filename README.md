@@ -10,6 +10,33 @@ verified quotes → chat) is planned for a later milestone, not v1.
 
 <!-- Screenshot: replace this comment with an image once the UI is stable. -->
 
+## Install
+
+Download the latest `yunee-<version>.flatpak` from the
+[releases page](https://github.com/LyKhoris/Yunee/releases/latest) and install it
+for your user:
+
+```bash
+flatpak install --user yunee-<version>.flatpak
+```
+
+It needs `org.gnome.Platform//51` (Flatpak fetches it if you have Flathub added).
+
+### Updating
+
+A `.flatpak` bundle is an installer, not an update channel: double-clicking a
+newer bundle in GNOME Software shows the app as **already installed** and offers
+nothing, because the bundle has no remote to compare versions against. Updating
+is an explicit reinstall of the newer bundle:
+
+```bash
+flatpak install --user --reinstall yunee-<version>.flatpak
+```
+
+`--reinstall` is required. Plain `flatpak install` refuses a bundle whose commit
+is already present, and does not compare versions — it will happily install an
+older bundle over a newer one.
+
 ## Build and run
 
 Fedora + GNOME, GTK4 + libadwaita. Install the system libraries and Flatpak

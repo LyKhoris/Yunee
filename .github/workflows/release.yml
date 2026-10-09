@@ -2,11 +2,18 @@ name: Release
 
 # Builds the Flatpak and attaches the bundle to a GitHub release.
 #
-# Push a tag (e.g. `git tag v0.1.0-beta.1 && git push origin v0.1.0-beta.1`).
+# Push a tag (e.g. `git tag v0.1.0-beta.4 && git push origin v0.1.0-beta.4`).
 #
-# Auto-updates are not wired up yet: a Flatpak repository needs a public home
-# (GitHub Pages needs a public repo, or Flathub). Until then, users install the
-# bundle from the release and re-download to update.
+# Distribution is bundle-only and private: there is no Flatpak repository and no
+# remote. A `.flatpak` bundle is an installer, not an update channel — GNOME
+# Software shows an installed app as installed and never compares versions, and
+# `flatpak install` refuses a bundle whose commit is already present. Updating is
+# an explicit reinstall:
+#
+#   flatpak install --user --reinstall yunee-<version>.flatpak
+#
+# The bundle's version is stamped from the tag below, so each release carries a
+# distinct version in both the app's Settings row and the Flatpak metadata.
 
 on:
   push:
@@ -38,6 +45,31 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # The version comes from the tag, so it is only meaningful for tag builds.
+      - name: Resolve version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Stamp the tag into the workspace version and the AppStream release, so
+      # every bundle is a distinct version. On workflow_dispatch (no tag) the
+      # committed version is used as-is.
+      - name: Stamp the version from the tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          date="$(date -u +%Y-%m-%d)"
+          sed -i "s/^version = \".*\"/version = \"${version}\"/" Cargo.toml
+          sed -i \
+            "s#<release version=\"[^\"]*\" date=\"[^\"]*\">#<release version=\"${version}\" date=\"${date}\">#" \
+            data/io.github.LyKhoris.Yunee.metainfo.xml
+          # Keep the lockfile in step with the new workspace versions, or the
+          # offline `--locked` build below refuses to run.
+          cargo update --workspace
+          echo "Stamped version ${version}:"
+          grep -n '^version' Cargo.toml
+          grep -n '<release ' data/io.github.LyKhoris.Yunee.metainfo.xml
+
       - name: Vendor crates
         run: cargo vendor vendor
 
@@ -46,7 +78,7 @@ jobs:
           flatpak-builder --user --force-clean \
             --install-deps-from=flathub \
             --repo=repo build-dir flatpak/io.github.LyKhoris.Yunee.yml
-          flatpak build-bundle repo "yunee-${GITHUB_REF_NAME#v}.flatpak" \
+          flatpak build-bundle repo "yunee-${{ steps.version.outputs.version }}.flatpak" \
             io.github.LyKhoris.Yunee
 
       - name: Upload the bundle as an artifact
@@ -56,6 +88,8 @@ jobs:
           path: "*.flatpak"
           if-no-files-found: error
 
+      # `body` is pre-pended to the generated notes. Bundles do not update in
+      # place, so the update command is the whole point of this section.
       - name: Attach the bundle to the release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -63,3 +97,18 @@ jobs:
           files: "*.flatpak"
           prerelease: true
           generate_release_notes: true
+          body: |
+            ## Install / update
+
+            Yunee ships as a Flatpak bundle. Bundles install but never update in
+            place, so installing over an existing copy needs `--reinstall`:
+
+            ```sh
+            # First install
+            flatpak install --user yunee-${{ steps.version.outputs.version }}.flatpak
+
+            # Update an existing install
+            flatpak install --user --reinstall yunee-${{ steps.version.outputs.version }}.flatpak
+            ```
+
+            Requires `org.gnome.Platform//51`.

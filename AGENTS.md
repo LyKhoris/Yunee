@@ -171,6 +171,32 @@ locked keyring, a headless session), Yunee falls back to the `0600` file so the
 app stays usable, and says so. The server address is a non-secret setting; the
 token is never written to the database.
 
+## Distribution & updates — decided 2026-10-08
+
+Yunee ships as a single-file Flatpak bundle attached to each GitHub release.
+Distribution stays private: there is no Flatpak repository, no remote, and no
+public host.
+
+**A bundle is an installer, not an update channel.** GNOME Software matches the
+bundle to the installed app id and shows it as installed; it never compares
+versions and never offers an update. `flatpak install` also refuses a bundle whose
+commit is already present, and does not compare versions at all — installing an
+older bundle over a newer one succeeds and silently downgrades. Updating is
+therefore an explicit reinstall:
+
+```
+flatpak install --user --reinstall yunee-<version>.flatpak
+```
+
+The release workflow stamps the pushed tag into the workspace version
+(`Cargo.toml`) and the AppStream `<release>`, so every bundle is a distinct
+version: the Settings row (`CARGO_PKG_VERSION`) and `flatpak info` both report it,
+rather than every beta reading `0.1.0`.
+
+A future Flatpak repository — which needs a public static host, or a public
+distribution repo — would restore ordinary `flatpak update` and GNOME Software's
+Updates page. Until then, `--reinstall` is the update path.
+
 ## Build / run / check
 
 Fedora workstation, GNOME. System libraries plus Flatpak tooling:
