@@ -235,40 +235,6 @@ pub struct FileUploadTarget {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PlannerOverride {
-    pub marked_complete: Option<bool>,
-    pub dismissed: Option<bool>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PlannerItem {
-    pub plannable_type: Option<String>,
-    #[serde(default, deserialize_with = "ids::opt_id")]
-    pub plannable_id: Option<String>,
-    #[serde(default, deserialize_with = "ids::opt_id")]
-    pub course_id: Option<String>,
-    /// Polymorphic: shape depends on `plannable_type`.
-    pub plannable: Option<Plannable>,
-    pub html_url: Option<String>,
-    pub planner_override: Option<PlannerOverride>,
-    pub submissions: Option<serde_json::Value>,
-}
-
-/// The common fields across planner plannables (assignment / quiz / calendar).
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Plannable {
-    #[serde(default, deserialize_with = "ids::opt_id")]
-    pub id: Option<String>,
-    pub title: Option<String>,
-    pub name: Option<String>,
-    pub due_at: Option<String>,
-    #[serde(default, deserialize_with = "ids::opt_number")]
-    pub points_possible: Option<f64>,
-    #[serde(default, deserialize_with = "ids::opt_id")]
-    pub course_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct TodoItem {
     #[serde(rename = "type")]
     pub item_type: Option<String>,

@@ -9,10 +9,10 @@
 //! * **Local reads stay instant** — the UI reads from SQLite; the network is
 //!   only touched here, in the background.
 
-use chrono::{Local, Utc};
+use chrono::Utc;
 use yunee_canvas::{CanvasClient, types as cv};
 use yunee_store as st;
-use yunee_store::{PlannerItem, Store};
+use yunee_store::Store;
 
 use crate::{html, state::Connection};
 
@@ -67,8 +67,6 @@ pub async fn sync_all(store: &Store, connection: &Connection) -> SyncReport {
             Err(e) => report.errors.push(format!("{label}: {e}")),
         }
     }
-
-    sync_planner(store, &client, &now, &mut report.counts, &mut report.errors).await;
 
     // Finish the durable side.
     let _ = store.rebuild_search();
@@ -264,35 +262,6 @@ pub async fn fetch_page(
         .upsert_page(&map_page(local_id, &full, body))
         .map_err(|e| e.to_string())?;
     Ok(())
-}
-
-async fn sync_planner(
-    store: &Store,
-    client: &CanvasClient,
-    now: &str,
-    counts: &mut st::SyncCounts,
-    errors: &mut Vec<String>,
-) {
-    let today = Local::now().date_naive();
-    let start = (today - chrono::Duration::days(14))
-        .format("%Y-%m-%d")
-        .to_string();
-    let end = (today + chrono::Duration::days(45))
-        .format("%Y-%m-%d")
-        .to_string();
-    match client.planner_items(Some(&start), Some(&end)).await {
-        Ok(items) => {
-            for item in &items {
-                if let Some(record) = map_planner(item, now) {
-                    if store.upsert_planner_item(&record).is_ok() {
-                        counts.planner += 1;
-                    }
-                }
-            }
-        }
-        Err(e) if e.is_not_found() => {}
-        Err(e) => errors.push(friendly(&e, "planner")),
-    }
 }
 
 fn friendly(error: &yunee_canvas::CanvasError, what: &str) -> String {
@@ -511,41 +480,4 @@ fn map_file(course_id: st::LocalId, f: &cv::FileEntry, now: &str) -> st::FileEnt
         updated_at: f.updated_at.clone().or_else(|| Some(now.to_string())),
         local_path: None,
     }
-}
-
-fn map_planner(item: &cv::PlannerItem, now: &str) -> Option<PlannerItem> {
-    let plannable_type = item
-        .plannable_type
-        .clone()
-        .unwrap_or_else(|| "unknown".into());
-    let plannable_id = item.plannable_id.clone();
-    let course_id = item.course_id.clone();
-    let key = format!(
-        "{plannable_type}:{}:{}",
-        plannable_id.clone().unwrap_or_default(),
-        course_id.clone().unwrap_or_else(|| "0".into())
-    );
-
-    let plannable = item.plannable.as_ref();
-    let title = plannable
-        .and_then(|p| p.title.clone().or_else(|| p.name.clone()))
-        .unwrap_or_else(|| "Untitled".into());
-
-    let override_ = item.planner_override.as_ref();
-    Some(PlannerItem {
-        id: 0,
-        key,
-        plannable_type,
-        plannable_id,
-        course_id: None, // resolved later by the UI via Canvas course id
-        course_name: None,
-        title,
-        due_at: plannable.and_then(|p| p.due_at.clone()),
-        points_possible: plannable.and_then(|p| p.points_possible),
-        html_url: item.html_url.clone(),
-        completed: override_.and_then(|o| o.marked_complete).unwrap_or(false),
-        dismissed: override_.and_then(|o| o.dismissed).unwrap_or(false),
-        submission_state: None,
-        updated_at: now.to_string(),
-    })
 }

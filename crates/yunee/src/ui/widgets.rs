@@ -34,8 +34,6 @@ pub fn css() -> String {
 .section {{ font-weight: 700; }}
 .muted {{ opacity: 0.7; }}
 .tiny {{ font-size: 0.8rem; }}
-.rail-label {{ font-size: 11px; font-weight: 600; }}
-.rail-title {{ font-weight: 800; font-size: 1.05rem; }}
 
 /* Course colour dot in the course list. */
 .course-dot {{ border-radius: 999px; min-width: 10px; min-height: 10px; }}
@@ -106,7 +104,17 @@ pub fn pill(text: &str, class: &str) -> gtk::Label {
 pub fn page_title(text: &str) -> gtk::Label {
     let label = gtk::Label::new(Some(text));
     label.set_xalign(0.0);
+    label.set_wrap(true);
     label.add_css_class("page-title");
+    label
+}
+
+/// A dimmed, wrapping label for secondary text.
+pub fn muted(text: &str) -> gtk::Label {
+    let label = gtk::Label::new(Some(text));
+    label.set_xalign(0.0);
+    label.set_wrap(true);
+    label.add_css_class("muted");
     label
 }
 
@@ -170,7 +178,7 @@ pub fn score_text(a: &st::Assignment) -> String {
     }
 }
 
-fn trim_number(value: f64) -> String {
+pub fn trim_number(value: f64) -> String {
     if (value.fract()).abs() < f64::EPSILON {
         format!("{}", value as i64)
     } else {
@@ -241,7 +249,7 @@ pub fn announcement_row(a: &st::Announcement, course_name: &str) -> adw::Expande
         sub.push_str("  ·  ");
         sub.push_str(author);
     }
-    row.set_subtitle(&sub);
+    row.set_subtitle(&gtk::glib::markup_escape_text(&sub));
     if a.is_unread() {
         row.add_suffix(&pill("new", "info"));
     }

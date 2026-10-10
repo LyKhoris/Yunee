@@ -65,11 +65,6 @@ impl Assignment {
             Some("submitted") | Some("graded")
         )
     }
-
-    /// True when Canvas flags it as ready to submit and it is not done yet.
-    pub fn needs_submitting(&self) -> bool {
-        !self.is_submitted() && !self.excused && self.missing
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -184,26 +179,6 @@ impl Page {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PlannerItem {
-    pub id: LocalId,
-    /// Stable identity across syncs: `type:id:course`.
-    pub key: String,
-    pub plannable_type: String,
-    pub plannable_id: Option<String>,
-    pub course_id: Option<LocalId>,
-    pub course_name: Option<String>,
-    pub title: String,
-    pub due_at: Option<String>,
-    pub points_possible: Option<f64>,
-    pub html_url: Option<String>,
-    /// `planner_override` — the user marked it complete/dismissed.
-    pub completed: bool,
-    pub dismissed: bool,
-    pub submission_state: Option<String>,
-    pub updated_at: String,
-}
-
 /// One hit from the local full-text index.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SearchHit {
@@ -222,5 +197,4 @@ pub struct SyncCounts {
     pub modules: usize,
     pub files: usize,
     pub pages: usize,
-    pub planner: usize,
 }

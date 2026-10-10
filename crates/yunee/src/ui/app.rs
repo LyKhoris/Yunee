@@ -272,8 +272,8 @@ fn sidebar_row(
     prefix: Option<gtk::Widget>,
 ) -> adw::ActionRow {
     let row = adw::ActionRow::builder()
-        .title(title)
-        .subtitle(subtitle)
+        .title(glib::markup_escape_text(title))
+        .subtitle(glib::markup_escape_text(subtitle))
         .activatable(true)
         .build();
     if let Some(prefix) = prefix {
@@ -300,7 +300,10 @@ fn section_header(text: &str) -> gtk::ListBoxRow {
 
 impl Ui {
     pub(crate) fn toast(&self, message: &str) {
-        self.toasts.add_toast(adw::Toast::new(message));
+        // Toast titles are Pango markup; escape so a path or Canvas error with
+        // `&`/`<` cannot break the label.
+        self.toasts
+            .add_toast(adw::Toast::new(&glib::markup_escape_text(message)));
     }
 
     /// Put a widget in the content header bar's title slot (a view switcher for

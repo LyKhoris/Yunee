@@ -11,7 +11,7 @@
     <p>
       Yunee is a local, single-user client for Canvas LMS. It syncs your
       courses, assignments and their submission state, announcements, modules,
-      files, and planner into a local SQLite database, so the app is fast and
+      files into a local SQLite database, so the app is fast and
       works offline. The network is touched only by the sync engine.
     </p>
     <p>
@@ -38,7 +38,7 @@
       <description>
         <p>
           First release: Canvas courses, assignments, announcements, modules,
-          files, and the planner, synced into local SQLite.
+          files, synced into local SQLite.
         </p>
       </description>
     </release>

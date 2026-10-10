@@ -67,12 +67,14 @@ impl Store {
         self.conn.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Apply the schema. Safe to run on every open.
+    /// Apply the schema. Safe to run on every open, atomically.
     pub fn migrate(&self) -> Result<()> {
-        let conn = self.conn();
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
         for statement in schema::SCHEMA {
-            conn.execute_batch(statement)?;
+            tx.execute_batch(statement)?;
         }
+        tx.commit()?;
         Ok(())
     }
 
@@ -579,71 +581,6 @@ impl Store {
     }
 
     // ----------------------------------------------------------------------
-    // Planner
-    // ----------------------------------------------------------------------
-
-    pub fn upsert_planner_item(&self, p: &PlannerItem) -> Result<()> {
-        let conn = self.conn();
-        conn.execute(
-            r#"
-            INSERT INTO planner_items
-                (key, plannable_type, plannable_id, course_id, course_name, title,
-                 due_at, points_possible, html_url, completed, dismissed,
-                 submission_state, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-            ON CONFLICT(key) DO UPDATE SET
-                plannable_type = excluded.plannable_type,
-                plannable_id = excluded.plannable_id,
-                course_id = excluded.course_id,
-                course_name = excluded.course_name,
-                title = excluded.title,
-                due_at = excluded.due_at,
-                points_possible = excluded.points_possible,
-                html_url = excluded.html_url,
-                completed = excluded.completed,
-                dismissed = excluded.dismissed,
-                submission_state = excluded.submission_state,
-                updated_at = excluded.updated_at
-            "#,
-            params![
-                p.key,
-                p.plannable_type,
-                p.plannable_id,
-                p.course_id,
-                p.course_name,
-                p.title,
-                p.due_at,
-                p.points_possible,
-                p.html_url,
-                p.completed as i64,
-                p.dismissed as i64,
-                p.submission_state,
-                p.updated_at,
-            ],
-        )?;
-        Ok(())
-    }
-
-    pub fn list_planner_items(&self) -> Result<Vec<PlannerItem>> {
-        let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT * FROM planner_items WHERE dismissed = 0
-             ORDER BY (due_at IS NULL), due_at, title COLLATE NOCASE",
-        )?;
-        let rows = stmt.query_map([], row_to_planner)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
-    }
-
-    pub fn set_planner_completed(&self, key: &str, completed: bool) -> Result<()> {
-        let conn = self.conn();
-        conn.execute(
-            "UPDATE planner_items SET completed = ?2 WHERE key = ?1",
-            params![key, completed as i64],
-        )?;
-        Ok(())
-    }
-
-    // ----------------------------------------------------------------------
     // Sync bookkeeping + settings
     // ----------------------------------------------------------------------
 
@@ -896,25 +833,6 @@ fn row_to_file(row: &rusqlite::Row<'_>) -> rusqlite::Result<FileEntry> {
     })
 }
 
-fn row_to_planner(row: &rusqlite::Row<'_>) -> rusqlite::Result<PlannerItem> {
-    Ok(PlannerItem {
-        id: row.get("id")?,
-        key: row.get("key")?,
-        plannable_type: row.get("plannable_type")?,
-        plannable_id: row.get("plannable_id")?,
-        course_id: row.get("course_id")?,
-        course_name: row.get("course_name")?,
-        title: row.get("title")?,
-        due_at: row.get("due_at")?,
-        points_possible: row.get("points_possible")?,
-        html_url: row.get("html_url")?,
-        completed: row.get::<_, i64>("completed")? != 0,
-        dismissed: row.get::<_, i64>("dismissed")? != 0,
-        submission_state: row.get("submission_state")?,
-        updated_at: row.get("updated_at")?,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1033,34 +951,6 @@ mod tests {
             Some("2026-10-06T00:00:00Z")
         );
         assert!(!list[0].is_unread());
-    }
-
-    #[test]
-    fn planner_upsert_is_by_key() {
-        let store = Store::open_in_memory().unwrap();
-        let item = PlannerItem {
-            id: 0,
-            key: "assignment:500:101".into(),
-            plannable_type: "assignment".into(),
-            plannable_id: Some("500".into()),
-            course_id: None,
-            course_name: Some("ANTH 300".into()),
-            title: "Reading response 3".into(),
-            due_at: Some("2026-10-20T07:00:00Z".into()),
-            points_possible: Some(10.0),
-            html_url: None,
-            completed: false,
-            dismissed: false,
-            submission_state: Some("unsubmitted".into()),
-            updated_at: now_iso(),
-        };
-        store.upsert_planner_item(&item).unwrap();
-        store
-            .set_planner_completed("assignment:500:101", true)
-            .unwrap();
-        let all = store.list_planner_items().unwrap();
-        assert_eq!(all.len(), 1);
-        assert!(all[0].completed);
     }
 
     #[test]

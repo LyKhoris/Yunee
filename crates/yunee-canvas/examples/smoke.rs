@@ -99,10 +99,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // 4. Cross-course endpoints (404-tolerant).
-    report(
-        "planner items",
-        client.planner_items(None, None).await.map(|v| v.len()),
-    );
     report("todo", client.todo().await.map(|v| v.len()));
     report(
         "missing submissions",

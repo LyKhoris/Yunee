@@ -1,8 +1,8 @@
 //! `yunee-canvas` — a typed client for the Canvas LMS REST API.
 //!
 //! Scope is a single student's own account: everything they can read, plus the
-//! writes Canvas documents for students (submissions, module completion,
-//! planner overrides, read markers). It fixes the three things that made the
+//! writes Canvas documents for students (submissions, module completion, and
+//! read markers). It fixes the three things that made the
 //! earlier client fragile:
 //!
 //! * **Pagination** — every list call follows `Link: rel="next"` to the end.

@@ -2,7 +2,7 @@
 
 **Yunee** is a local, single-user desktop application for one student's Canvas
 world. It is a Canvas LMS client for GNOME — courses, assignments with submission
-state, announcements, modules, files, and the planner — synced into a local SQLite
+state, announcements, modules, and files — synced into a local SQLite
 database, with a study layer (recording → transcription → notes with verified
 quotes → chat) planned as a later milestone. It is not hosted, not shared, and not
 sold. Whoever runs it on their machine has access; there is no account to create
@@ -53,7 +53,7 @@ reached a shared server.
 
 **"A better Canvas client first."** The app's spine is Canvas: courses,
 assignments with submission status, announcements with read tracking, modules and
-items, folders and files, planner/todo, and grade views, synced to local SQLite
+items, folders and files, and grade views, synced to local SQLite
 with FTS5 search.
 
 The **study layer** — recording, transcription, notes with verified quotes, and
@@ -73,7 +73,7 @@ those depends on the UI.
 Speaks only HTTP and JSON; it has no storage or UI dependency. It covers every
 read Yunee needs (courses with teachers/term/grades, assignments including the
 student's submission state, announcements, modules + items, folders + files,
-wiki pages, and planner/todo), file downloads, and the student writes listed
+wiki pages), file downloads, and the student writes listed
 below.
 
 It deliberately fixes three weaknesses of the earlier integration:
@@ -94,7 +94,7 @@ ids are parsed tolerantly (Canvas may send numbers or strings) and normalized to
 
 The durable memory of one student: a single SQLite file (rusqlite, bundled, WAL)
 holding courses, assignments, announcements, modules, module items, folders,
-files, wiki pages, planner items, sync bookkeeping, settings, and an FTS5 index
+files, wiki pages, sync bookkeeping, settings, and an FTS5 index
 over the searchable text. There is no tenancy of any kind.
 
 Everything is headless and unit-tested. The UI and the sync engine are its only
@@ -123,8 +123,7 @@ Yunee is a single-user local tool, so a personal access token is the appropriate
 mechanism; Yunee is not distributed as a multi-user client.
 
 **v1 Canvas reads:** courses (with teachers, term, grades), assignments including
-submission state, announcements, modules + items, folders + files, wiki pages,
-planner/todo.
+submission state, announcements, modules + items, folders + files, wiki pages.
 
 **v1 Canvas writes (student-only, whatever Canvas documents for students):**
 
@@ -134,7 +133,6 @@ planner/todo.
   status: the detail view lays out the text / URL / file controls and a Submit
   button, but the button is not wired to Canvas yet — layout only.*
 - Mark a module item done / mark it read.
-- Planner overrides (mark complete / dismiss).
 - Mark an announcement read.
 
 ## Hard rules that survive

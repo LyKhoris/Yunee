@@ -6,7 +6,7 @@ and why a personal access token is the right credential for this app.
 ## What is synced
 
 A sync pulls the student's own account for the courses they are actively enrolled
-in, then everything under each course, then the planner.
+in, then everything under each course.
 
 | Target | Canvas endpoint | Notes |
 |---|---|---|
@@ -17,7 +17,6 @@ in, then everything under each course, then the planner.
 | Folders | `GET /courses/:id/folders` | |
 | Files | `GET /courses/:id/files` | `sort=updated_at&order=desc`. |
 | Wiki pages | `GET /courses/:id/pages` + `.../pages/:url` | The index gives each page's title and slug; its HTML `body` comes from the page's own show request, fetched only when missing or changed. A course can **disable the Pages index** (404 `"That page has been disabled for this course"`) while individual pages still load by slug, so such pages are fetched on demand when opened. |
-| Planner | `GET /planner/items` | 14 days back to 45 days ahead. |
 | File downloads | the URL in a file record | Fetched with the bearer token attached. |
 
 Reads also available to the client (used for verification and future surfaces,
@@ -69,9 +68,9 @@ guard makes a large first sync safe.
 Older and self-hosted Canvas instances do not implement every endpoint. Yunee maps
 HTTP 404 to a distinct `CanvasError::NotFound` instead of a generic failure, so
 callers can decide to skip quietly. The sync engine already does this for modules
-and files, and for the planner: if the endpoint is absent, that section is skipped
-and the rest of the sync is untouched. HTTP 401 maps to `Unauthorized` (a dead or
-wrong-instance token), which the UI turns into a "reconnect" prompt.
+and files: if the endpoint is absent, that section is skipped and the rest of the
+sync is untouched. HTTP 401 maps to `Unauthorized` (a dead or wrong-instance
+token), which the UI turns into a "reconnect" prompt.
 
 Ids are also parsed tolerantly: Canvas may return numbers or strings, and Yunee's
 deserializers accept either and normalize to `String`, so a number/string
@@ -96,8 +95,6 @@ Yunee only performs writes Canvas documents for students on their own account.
 - **Module completion** — mark a module item done (`PUT
   .../modules/:module_id/items/:item_id/done`) or satisfy a must-view requirement
   (`POST .../mark_read`), according to the item's completion requirement.
-- **Planner overrides** — `POST /planner/overrides` to mark a planner item complete
-  or dismissed without submitting it.
 - **Announcement read** — `PUT
   /courses/:id/discussion_topics/:id/read`. Marking read locally happens first and
   is best-effort mirrored to Canvas; the local marker survives re-sync even if the

@@ -38,26 +38,27 @@ observed). Nothing in the UI calls Canvas directly except best-effort writes.
    - announcements (`discussion_topics?only_announcements=true`),
    - modules with their items (`include[]=items`),
    - wiki pages (the index for titles and slugs, one show request per page for
-     its HTML body),
-   - folders and files.
+     its HTML body).
+
+   Folders and files are deliberately *not* swept here: they are the most
+   expensive Canvas request, so the Files tab loads them on demand
+   (`sync_course_files`) instead.
 
    A failure in one course is captured as `"<course>: <error>"` and the loop moves
    on to the next course; one broken course never aborts the rest. Within a course,
    a missing endpoint (404) is tolerated quietly where it is optional — modules and
    files are skipped on older Canvas — while a genuine error is recorded.
-4. **Planner.** After the courses, `planner_items` is pulled over a window from 14
-   days back to 45 days ahead, and upserted by its stable `type:id:course` key.
-5. **Commit the durable side.** `store.rebuild_search()` rebuilds the FTS index
+4. **Commit the durable side.** `store.rebuild_search()` rebuilds the FTS index
    from the freshly upserted rows, and `record_sync("last", now)` stores the sync
    timestamp.
-6. **Notification material.** Finally the engine scans the (up to 50 most recent)
+5. **Notification material.** Finally the engine scans the (up to 50 most recent)
    announcements for ones that are still unread and whose `posted_at` is newer
    than the previous sync timestamp. Those become `report.new_unread`, which the UI
    turns into a GNOME notification.
 
-Error isolation is a deliberate property: the unit of failure is one course (or
-the planner), never the whole sync. The UI reports the first error in a toast while
-keeping every course that did succeed.
+Error isolation is a deliberate property: the unit of failure is one course, never
+the whole sync. The UI reports the first error in a toast while keeping every course
+that did succeed.
 
 ## Store schema overview
 
@@ -76,10 +77,9 @@ reference. There are no tenancy columns.
 | `folders` | Course file folders, with parent id and full name. |
 | `files` | Course files, with display name, type, size, and the token-bearing Canvas URL (never handed out as a bare link). `local_path` is set once downloaded. |
 | `pages` | Course wiki pages, with the Canvas page id, the `url` slug, and the HTML body — so Pages read offline. |
-| `planner_items` | Planner entries keyed by `type:id:course`, with due date, points, completion and dismissal state. |
 | `sync_state` | Small key/value bookkeeping, notably the last sync timestamp. |
 | `settings` | Non-secret app settings, notably the Canvas base URL. |
-| `search` | FTS5 virtual table (`unicode61`) over courses, assignments, announcements, and files. `kind` and `ref_id` are unindexed to ride along without polluting the match. |
+| `search` | FTS5 virtual table (`unicode61`) over courses, assignments, announcements, files, and pages. `kind` and `ref_id` are unindexed to ride along without polluting the match. |
 
 A handful of indexes back the queries the sync and UI lean on:
 `idx_assignments_course`, `idx_assignments_due`, `idx_announcements_course`,
@@ -102,11 +102,11 @@ GTK's main loop is not async, so Yunee keeps the two worlds separate:
   verification, and best-effort Canvas writes each run on a `std::thread::spawn`
   thread that does `runtime().block_on(...)`. The GTK loop is never blocked on
   the network.
-- **Results marshal back through `glib::MainContext::default().invoke(...)`.** The
-  background thread hands its result to a closure that runs on the GTK main thread,
-  where it is safe to touch widgets: reload the sidebar, dashboard, course, files,
-  and settings pages, show a toast, or post a notification. The UI never touches
-  widgets from a worker thread.
+- **Results marshal back through `glib::MainContext::default().spawn_local(...)`.** The
+  background thread hands its result over an `async_channel`, and a future on the
+  GTK main loop awaits it and then touches widgets: reload the sidebar, dashboard,
+  course, files, and settings pages, show a toast, or post a notification. The UI
+  never touches widgets from a worker thread.
 - **Shared store.** One `Store` lives behind an `Arc`, shared between the GTK main
   thread and any worker. The underlying `rusqlite::Connection` is `Send` but not
   `Sync`, so the store wraps it in a `Mutex`; a poisoned lock is recovered rather

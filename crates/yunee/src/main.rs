@@ -54,8 +54,8 @@ fn sync_once() -> gtk::glib::ExitCode {
     let report = runtime::runtime().block_on(sync::sync_all(&state.store, &connection));
     let c = &report.counts;
     println!(
-        "synced: courses={} assignments={} announcements={} modules={} files={} pages={} planner={}",
-        c.courses, c.assignments, c.announcements, c.modules, c.files, c.pages, c.planner
+        "synced: courses={} assignments={} announcements={} modules={} files={} pages={}",
+        c.courses, c.assignments, c.announcements, c.modules, c.files, c.pages
     );
     for error in &report.errors {
         eprintln!("warning: {error}");

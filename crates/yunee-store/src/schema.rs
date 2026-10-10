@@ -133,24 +133,6 @@ pub const SCHEMA: &[&str] = &[
     )
     "#,
     r#"
-    CREATE TABLE IF NOT EXISTS planner_items (
-        id               INTEGER PRIMARY KEY AUTOINCREMENT,
-        key              TEXT NOT NULL UNIQUE,
-        plannable_type   TEXT NOT NULL,
-        plannable_id     TEXT,
-        course_id        INTEGER REFERENCES courses(id) ON DELETE SET NULL,
-        course_name      TEXT,
-        title            TEXT NOT NULL,
-        due_at           TEXT,
-        points_possible  REAL,
-        html_url         TEXT,
-        completed        INTEGER NOT NULL DEFAULT 0,
-        dismissed        INTEGER NOT NULL DEFAULT 0,
-        submission_state TEXT,
-        updated_at       TEXT NOT NULL
-    )
-    "#,
-    r#"
     CREATE TABLE IF NOT EXISTS sync_state (
         key        TEXT PRIMARY KEY,
         value      TEXT,
@@ -182,4 +164,7 @@ pub const SCHEMA: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_files_course ON files (course_id)",
     "CREATE INDEX IF NOT EXISTS idx_folders_course ON folders (course_id)",
     "CREATE INDEX IF NOT EXISTS idx_pages_course ON pages (course_id)",
+    // Retired: the planner was removed. Drop its table on installs that have
+    // one, so nothing is left behind.
+    "DROP TABLE IF EXISTS planner_items",
 ];

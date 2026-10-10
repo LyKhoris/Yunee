@@ -29,10 +29,10 @@ pub fn render(ui: &Rc<Ui>) {
 
     // --- To Do ---
     ui.dashboard_page.append(&widgets::section("To Do"));
-    let items = todo_items(ui);
+    let items = todo_items(ui, &courses);
     if items.is_empty() {
         ui.dashboard_page
-            .append(&dim("Nothing due. You're all caught up."));
+            .append(&widgets::muted("Nothing due. You're all caught up."));
     } else {
         let list = gtk::ListBox::new();
         list.add_css_class("boxed-list");
@@ -90,25 +90,11 @@ pub fn render(ui: &Rc<Ui>) {
     }
 }
 
-fn dim(text: &str) -> gtk::Label {
-    let label = gtk::Label::new(Some(text));
-    label.set_xalign(0.0);
-    label.set_wrap(true);
-    label.add_css_class("muted");
-    label
-}
-
 /// Up to a dozen open assignments due soonest (overdue first).
-fn todo_items(ui: &Rc<Ui>) -> Vec<(st::Assignment, st::Course)> {
-    let courses: HashMap<LocalId, st::Course> = ui
-        .state
-        .store
-        .list_courses()
-        .unwrap_or_default()
-        .into_iter()
-        .map(|c| (c.id, c))
-        .collect();
-
+fn todo_items(
+    ui: &Rc<Ui>,
+    courses: &HashMap<LocalId, st::Course>,
+) -> Vec<(st::Assignment, st::Course)> {
     let mut items: Vec<(st::Assignment, st::Course)> = ui
         .state
         .store

@@ -38,12 +38,6 @@ pub fn opt_id_vec<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<Stri
         .collect())
 }
 
-/// A number that Canvas may send as a JSON number *or* a string.
-pub fn number<'de, D: Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
-    let value = serde_json::Value::deserialize(deserializer)?;
-    value_to_f64(value).ok_or_else(|| de::Error::custom("expected a number"))
-}
-
 /// Optional number, number-or-string, or null.
 pub fn opt_number<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<f64>, D::Error> {
     let value = Option::<serde_json::Value>::deserialize(deserializer)?;

@@ -73,12 +73,6 @@ impl CanvasClient {
         self.base.as_str()
     }
 
-    /// Exposed for the connector dialog's "verify" step; callers should not
-    /// persist it beyond what the secret store keeps.
-    pub fn token(&self) -> &str {
-        &self.token
-    }
-
     // ----------------------------------------------------------------------
     // Reads
     // ----------------------------------------------------------------------
@@ -164,25 +158,6 @@ impl CanvasClient {
     pub async fn get_page(&self, course_id: &str, url_or_id: &str) -> Result<Page> {
         let url = self.endpoint(&format!("/courses/{course_id}/pages/{url_or_id}"))?;
         self.get_json(url).await
-    }
-
-    pub async fn planner_items(
-        &self,
-        start: Option<&str>,
-        end: Option<&str>,
-    ) -> Result<Vec<PlannerItem>> {
-        let mut url = self.endpoint("/planner/items")?;
-        {
-            let mut q = url.query_pairs_mut();
-            q.append_pair("per_page", "100");
-            if let Some(s) = start {
-                q.append_pair("start_date", s);
-            }
-            if let Some(e) = end {
-                q.append_pair("end_date", e);
-            }
-        }
-        self.get_paged(url).await
     }
 
     pub async fn todo(&self) -> Result<Vec<TodoItem>> {
@@ -295,7 +270,7 @@ impl CanvasClient {
         let content_type = guess_content_type(&filename);
 
         // Step 1 — ask Canvas where to put it.
-        let mut url = self.endpoint(&format!(
+        let url = self.endpoint(&format!(
             "/courses/{course_id}/assignments/{assignment_id}/submissions/self/files"
         ))?;
         let target: FileUploadTarget = self
@@ -308,7 +283,6 @@ impl CanvasClient {
                 ],
             )
             .await?;
-        let _ = &mut url;
 
         // Step 2 — POST the file to the (usually S3) upload target.
         let file = tokio::fs::File::open(path)
@@ -400,28 +374,6 @@ impl CanvasClient {
         ))?;
         self.send(|| self.http.put(url.clone())).await?;
         Ok(())
-    }
-
-    /// Mark or dismiss a planner item without submitting it.
-    pub async fn planner_override(
-        &self,
-        plannable_type: &str,
-        plannable_id: &str,
-        course_id: &str,
-        marked_complete: bool,
-    ) -> Result<()> {
-        let url = self.endpoint("/planner/overrides")?;
-        self.post_form(
-            &url,
-            &[
-                ("plannable_type".into(), plannable_type.to_string()),
-                ("plannable_id".into(), plannable_id.to_string()),
-                ("course_id".into(), course_id.to_string()),
-                ("marked_complete".into(), marked_complete.to_string()),
-            ],
-        )
-        .await
-        .map(|_: serde_json::Value| ())
     }
 
     // ----------------------------------------------------------------------

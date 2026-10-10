@@ -125,22 +125,6 @@ fn add_tab(stack: &adw::ViewStack, icon: &str, name: &str, title: &str, content:
     page.set_icon_name(Some(icon));
 }
 
-fn heading(text: &str) -> gtk::Label {
-    let label = gtk::Label::new(Some(text));
-    label.set_xalign(0.0);
-    label.set_wrap(true);
-    label.add_css_class("page-title");
-    label
-}
-
-fn dim(text: &str) -> gtk::Label {
-    let label = gtk::Label::new(Some(text));
-    label.set_xalign(0.0);
-    label.set_wrap(true);
-    label.add_css_class("muted");
-    label
-}
-
 /// An announcement expander, with a "Mark read" button when unread.
 fn announcement_with_read(
     ui: &Rc<Ui>,
@@ -167,7 +151,7 @@ fn announcement_with_read(
 
 fn build_overview(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    page.append(&heading(&course.title));
+    page.append(&widgets::page_title(&course.title));
 
     let mut bits: Vec<String> = Vec::new();
     if let Some(prof) = &course.professor {
@@ -209,7 +193,7 @@ fn build_overview(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
         .collect();
     page.append(&widgets::section("Upcoming"));
     if upcoming.is_empty() {
-        page.append(&dim("Nothing due in the next month."));
+        page.append(&widgets::muted("Nothing due in the next month."));
     } else {
         let list = boxed_list();
         for a in upcoming {
@@ -227,7 +211,7 @@ fn build_overview(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
         .unwrap_or_default();
     page.append(&widgets::section("Announcements"));
     if announcements.is_empty() {
-        page.append(&dim("No announcements."));
+        page.append(&widgets::muted("No announcements."));
     } else {
         let list = boxed_list();
         for a in &announcements {
@@ -244,7 +228,7 @@ fn build_overview(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
 
 fn build_assignments(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    page.append(&heading("Assignments"));
+    page.append(&widgets::page_title("Assignments"));
 
     let assignments = ui
         .state
@@ -309,7 +293,7 @@ fn build_assignments(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
 
 fn build_modules(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    page.append(&heading("Modules"));
+    page.append(&widgets::page_title("Modules"));
 
     let modules = ui.state.store.list_modules(course.id).unwrap_or_default();
     if modules.is_empty() {
@@ -389,7 +373,7 @@ fn icon_for_type(item_type: Option<&str>) -> &'static str {
 
 fn build_files(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    page.append(&heading("Files"));
+    page.append(&widgets::page_title("Files"));
 
     let files = ui.state.store.list_files(course.id).unwrap_or_default();
     if files.is_empty() {
@@ -439,7 +423,7 @@ fn build_files(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
 
 fn build_grades(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
     let page = gtk::Box::new(gtk::Orientation::Vertical, 8);
-    page.append(&heading(&format!("Grades — {}", course.name)));
+    page.append(&widgets::page_title(&format!("Grades — {}", course.name)));
 
     let assignments = ui
         .state

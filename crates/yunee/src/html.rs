@@ -51,7 +51,11 @@ pub fn blocks(html_text: &str) -> Vec<Block> {
 }
 
 fn find_img(s: &str) -> Option<usize> {
-    s.to_ascii_lowercase().find("<img")
+    s.match_indices('<').map(|(i, _)| i).find(|&i| {
+        s[i + 1..]
+            .get(..3)
+            .is_some_and(|t| t.eq_ignore_ascii_case("img"))
+    })
 }
 
 fn push_text(out: &mut Vec<Block>, fragment: &str) {

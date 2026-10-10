@@ -56,7 +56,7 @@ pub(crate) fn assignment(ui: &Rc<Ui>, course: &st::Course, a: &st::Assignment) {
         facts.add(&fact("Due", "No due date"));
     }
     if let Some(points) = a.points_possible {
-        facts.add(&fact("Points", &trim_number(points)));
+        facts.add(&fact("Points", &widgets::trim_number(points)));
     }
     if let Some(submitted) = &a.submitted_at {
         facts.add(&fact("Submitted", &format::due_label(submitted)));
@@ -64,11 +64,11 @@ pub(crate) fn assignment(ui: &Rc<Ui>, course: &st::Course, a: &st::Assignment) {
     if let Some(score) = a.score {
         let points = a
             .points_possible
-            .map(trim_number)
+            .map(widgets::trim_number)
             .unwrap_or_else(|| "—".into());
         facts.add(&fact(
             "Score",
-            &format!("{} / {points}", trim_number(score)),
+            &format!("{} / {points}", widgets::trim_number(score)),
         ));
     } else if let Some(grade) = &a.grade {
         facts.add(&fact("Grade", grade));
@@ -103,19 +103,19 @@ fn submission(ui: &Rc<Ui>, a: &st::Assignment) {
         } else {
             "You have turned this in. Yunee only reads submissions today."
         };
-        ui.detail_page.append(&muted(text));
+        ui.detail_page.append(&widgets::muted(text));
         return;
     }
 
     let types = submission_types(a);
     if types.is_empty() {
-        ui.detail_page.append(&muted(
+        ui.detail_page.append(&widgets::muted(
             "This assignment has no online submission. Check Canvas for what you need to do.",
         ));
         return;
     }
 
-    ui.detail_page.append(&muted(
+    ui.detail_page.append(&widgets::muted(
         "Draft your submission below. Sending it to Canvas is not wired up yet — \
          this is the layout, not the action.",
     ));
@@ -223,7 +223,7 @@ fn upload_view() -> gtk::Widget {
 
 /// Anything Canvas allows that Yunee does not draw a control for.
 fn unsupported_view(kind: &str) -> gtk::Widget {
-    let label = muted(&format!(
+    let label = widgets::muted(&format!(
         "{} submissions aren't supported here yet. Use Canvas.",
         submission_label(kind)
     ));
@@ -292,7 +292,7 @@ pub(crate) fn loading(ui: &Rc<Ui>, course: &st::Course, title: &str) {
     let spinner = gtk::Spinner::new();
     spinner.start();
     column.append(&spinner);
-    column.append(&muted("Loading this page from Canvas…"));
+    column.append(&widgets::muted("Loading this page from Canvas…"));
     ui.detail_page.append(&column);
 }
 
@@ -437,17 +437,9 @@ pub(crate) fn web(ui: &Rc<Ui>, course: &st::Course, title: &str, kind: &str, url
 
 fn fact(title: &str, subtitle: &str) -> adw::ActionRow {
     adw::ActionRow::builder()
-        .title(title)
-        .subtitle(subtitle)
+        .title(gtk::glib::markup_escape_text(title))
+        .subtitle(gtk::glib::markup_escape_text(subtitle))
         .build()
-}
-
-fn muted(text: &str) -> gtk::Label {
-    let label = gtk::Label::new(Some(text));
-    label.set_xalign(0.0);
-    label.set_wrap(true);
-    label.add_css_class("muted");
-    label
 }
 
 /// Render a Canvas HTML body: text as rich labels and images fetched and drawn
@@ -579,12 +571,4 @@ fn canvas_url(ui: &Ui, path: &str) -> Option<String> {
         format!("https://{base}")
     };
     Some(format!("{base}{path}"))
-}
-
-fn trim_number(value: f64) -> String {
-    if (value.fract()).abs() < f64::EPSILON {
-        format!("{}", value as i64)
-    } else {
-        format!("{value:.1}")
-    }
 }
