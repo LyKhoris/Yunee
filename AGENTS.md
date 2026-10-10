@@ -173,7 +173,7 @@ token is never written to the database.
 
 Yunee ships from a **signed Flatpak repository** hosted on GitHub Pages at
 `https://lykhoris.github.io/Yunee/`, built and published by
-`.github/workflows/release.yml` on every `v*` tag. The source repo is public,
+`.github/workflows/publish.yml` on every `v*` tag. The source repo is public,
 because free GitHub Pages requires it.
 
 Install once from the `.flatpakref`, then update normally:
@@ -189,9 +189,13 @@ the app is installed from a remote that publishes newer metadata.
 **Why not bundles alone.** A `.flatpak` bundle is an installer, not an update
 channel: GNOME Software shows an installed app as installed and never compares
 versions, and `flatpak install` compares commits, not versions (it will silently
-downgrade). A standalone bundle is still attached to each release as an offline
-fallback, but it never updates in place. This supersedes the 2026-10-08
-bundle-only decision in commit `615da98`.
+downgrade). This supersedes the 2026-10-08 bundle-only decision in commit
+`615da98`.
+
+**No GitHub Releases — decided 2026-10-09.** A `v*` tag is purely a publish
+trigger: it updates the signed Flatpak repo and nothing else. Yunee publishes no
+GitHub Releases and attaches no bundles. Updates reach users through
+`flatpak update` / GNOME Software, exactly as above.
 
 **Signing.** The repo is signed with a GPG key: the secret half is the
 `FLATPAK_GPG_KEY` Actions secret, the public half is embedded in the

@@ -6,7 +6,7 @@ use adw::prelude::*;
 use gtk4 as gtk;
 
 use crate::format;
-use crate::ui::app::{RELEASES_URL, Ui};
+use crate::ui::app::{PROJECT_URL, Ui};
 use crate::ui::widgets;
 
 /// Render the settings page into the shared container.
@@ -112,17 +112,17 @@ pub fn render(ui: &Rc<Ui>) {
             .subtitle(concat!("Yunee ", env!("CARGO_PKG_VERSION")))
             .build(),
     );
-    let (release_row, release_button) = row_button(
-        "Latest release",
-        "Opens the releases page on GitHub in your browser",
+    let (project_row, project_button) = row_button(
+        "Project page",
+        "Opens Yunee's GitHub page in your browser",
         "Open GitHub",
         "flat",
     );
     {
         let ui = ui.clone();
-        release_button.connect_clicked(move |_| ui.open_url(RELEASES_URL));
+        project_button.connect_clicked(move |_| ui.open_url(PROJECT_URL));
     }
-    updates.add(&release_row);
+    updates.add(&project_row);
     ui.settings_page.append(&updates);
 
     // --- About ---

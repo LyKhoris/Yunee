@@ -32,29 +32,13 @@ flatpak-builder --user --install --force-clean \
 flatpak run io.github.LyKhoris.Yunee
 ```
 
-## Build a single-file bundle (for a release)
-
-```bash
-cargo vendor vendor
-flatpak-builder --user --force-clean --default-branch=stable \
-    --install-deps-from=flathub \
-    --repo=repo build-dir flatpak/io.github.LyKhoris.Yunee.yml
-
-flatpak build-bundle repo yunee-<version>.flatpak io.github.LyKhoris.Yunee stable
-```
-
-The resulting `.flatpak` installs on any machine with:
-
-```bash
-flatpak install yunee-<version>.flatpak
-```
-
 ## Publishing the update repository
 
-Releases are cut by pushing a tag (`v*`). `.github/workflows/release.yml` then
-builds the app, signs the OSTree repo, publishes it to the `gh-pages` branch
-(served at <https://lykhoris.github.io/Yunee/>), and attaches the bundle and
-`io.github.LyKhoris.Yunee.flatpakref` to the release.
+An update is published by pushing a tag (`v*`). `.github/workflows/publish.yml`
+then builds the app, signs the OSTree repo, and publishes it and the
+`.flatpakref` to the `gh-pages` branch (served at
+<https://lykhoris.github.io/Yunee/>). There are no GitHub Releases; the tag is
+just the publish trigger.
 
 GitHub Pages requires a public repository; `LyKhoris/Yunee` is public.
 
@@ -85,9 +69,7 @@ Users install once from the `.flatpakref`:
 flatpak install --from https://lykhoris.github.io/Yunee/io.github.LyKhoris.Yunee.flatpakref
 ```
 
-and then update with `flatpak update` or GNOME Software's Updates page. Bundles
-are an offline fallback only: a bundle install has no remote and never updates in
-place.
+and then update with `flatpak update` or GNOME Software's Updates page.
 
 ## Permissions
 

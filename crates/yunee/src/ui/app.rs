@@ -26,8 +26,8 @@ use crate::ui::{connect, course, dashboard, detail, settings, widgets};
 /// The app's reverse-DNS identity.
 pub const APP_ID: &str = "io.github.LyKhoris.Yunee";
 
-/// Where to send someone who wants the latest build.
-pub const RELEASES_URL: &str = "https://github.com/LyKhoris/Yunee/releases/latest";
+/// The project's home page, opened from Settings.
+pub const PROJECT_URL: &str = "https://github.com/LyKhoris/Yunee";
 
 /// One position in the content navigation stack. The sidebar selects a base
 /// screen; opening an assignment, page, file, or plain web item pushes a detail
