@@ -2,7 +2,7 @@
 //! locations (dashboard + courses + settings) and a content area whose header
 //! carries a view switcher for a course's sections.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -73,6 +73,12 @@ pub struct Ui {
     pub(crate) content_header: adw::HeaderBar,
     pub(crate) content_title: adw::WindowTitle,
     pub(crate) back_button: gtk::Button,
+    /// The header's refresh button, swapped to a spinner while a sync runs.
+    pub(crate) refresh_button: gtk::Button,
+    pub(crate) refresh_icon: gtk::Image,
+    pub(crate) sync_spinner: gtk::Spinner,
+    /// Set while a full sync is in flight, so overlapping syncs are ignored.
+    pub(crate) syncing: Cell<bool>,
     pub(crate) selected: RefCell<Option<st::Course>>,
     /// Courses whose files we have already tried to load on demand.
     pub(crate) files_attempted: RefCell<HashSet<st::LocalId>>,
@@ -138,10 +144,14 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     back_button.set_visible(false);
     content_header.pack_start(&back_button);
 
-    let refresh = gtk::Button::from_icon_name("view-refresh-symbolic");
+    let refresh_icon = gtk::Image::from_icon_name("view-refresh-symbolic");
+    let refresh = gtk::Button::builder().child(&refresh_icon).build();
     refresh.set_tooltip_text(Some("Sync with Canvas"));
     refresh.add_css_class("flat");
     content_header.pack_end(&refresh);
+
+    // Shown in place of the refresh icon while a sync is running.
+    let sync_spinner = gtk::Spinner::new();
 
     let menu = gio::Menu::new();
     menu.append(Some("Sync now"), Some("app.sync"));
@@ -198,6 +208,10 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         content_header,
         content_title,
         back_button: back_button.clone(),
+        refresh_button: refresh.clone(),
+        refresh_icon,
+        sync_spinner,
+        syncing: Cell::new(false),
         selected: RefCell::new(None),
         files_attempted: RefCell::new(HashSet::new()),
         pages_attempted: RefCell::new(HashSet::new()),
@@ -730,11 +744,15 @@ impl Ui {
     // ------------------------------------------------------------------
 
     pub(crate) fn sync_now(self: &Rc<Self>) {
+        if self.syncing.get() {
+            return;
+        }
         let Some(connection) = self.state.connection() else {
             self.toast("Connect to Canvas first.");
             self.open_connect();
             return;
         };
+        self.set_syncing(true);
         self.toast("Syncing…");
         let state = self.state.clone();
         let ui = self.clone();
@@ -750,7 +768,22 @@ impl Ui {
         });
     }
 
+    /// Reflect the running state in the header: the refresh icon becomes a
+    /// spinner and the button stops accepting clicks.
+    fn set_syncing(&self, syncing: bool) {
+        self.syncing.set(syncing);
+        self.refresh_button.set_sensitive(!syncing);
+        if syncing {
+            self.refresh_button.set_child(Some(&self.sync_spinner));
+            self.sync_spinner.start();
+        } else {
+            self.sync_spinner.stop();
+            self.refresh_button.set_child(Some(&self.refresh_icon));
+        }
+    }
+
     fn on_sync_done(self: &Rc<Self>, report: SyncReport) {
+        self.set_syncing(false);
         self.reload_all();
 
         if !report.new_unread.is_empty() {
