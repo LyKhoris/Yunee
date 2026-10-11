@@ -18,6 +18,7 @@ use crate::{html, state::Connection};
 
 /// What one sync accomplished.
 pub struct SyncReport {
+    pub requested: bool,
     pub counts: st::SyncCounts,
     pub errors: Vec<String>,
     /// Unread announcements first seen since the previous sync — the raw
@@ -33,7 +34,12 @@ impl SyncReport {
 
 /// Pull everything for the configured connection into `store`.
 pub async fn sync_all(store: &Store, connection: &Connection) -> SyncReport {
+    sync_with_policy(store, connection, true).await
+}
+
+pub async fn sync_with_policy(store: &Store, connection: &Connection, force: bool) -> SyncReport {
     let mut report = SyncReport {
+        requested: false,
         counts: Default::default(),
         errors: Vec::new(),
         new_unread: Vec::new(),
@@ -72,27 +78,39 @@ pub async fn sync_all(store: &Store, connection: &Connection) -> SyncReport {
         }
     };
 
-    let courses = match client.list_courses().await {
+    let course_key = format!("{}|courses", client.base_url());
+    if force || !fresh(store, &course_key, 5 * 60) {
+        report.requested = true;
+        let courses = match client.list_courses().await {
+            Ok(courses) => courses,
+            Err(e) => {
+                report.errors.push(friendly(&e, "courses"));
+                finish_sync(store, &now, &mut report);
+                return report;
+            }
+        };
+        let rows: Vec<_> = courses.iter().map(|c| map_course(c, &now)).collect();
+        if let Err(e) = store
+            .apply_snapshot(st::Snapshot::Courses(&rows))
+            .and_then(|_| store.record_sync(&course_key, &now))
+        {
+            report.errors.push(format!("could not store courses: {e}"));
+            finish_sync(store, &now, &mut report);
+            return report;
+        }
+        report.counts.courses = rows.len();
+    }
+    let courses = match store.list_courses() {
         Ok(courses) => courses,
         Err(e) => {
-            report.errors.push(friendly(&e, "courses"));
+            report.errors.push(e.to_string());
             finish_sync(store, &now, &mut report);
             return report;
         }
     };
-
-    let rows: Vec<_> = courses.iter().map(|c| map_course(c, &now)).collect();
-    if let Err(e) = store.apply_snapshot(st::Snapshot::Courses(&rows)) {
-        report.errors.push(format!("could not store courses: {e}"));
-        finish_sync(store, &now, &mut report);
-        return report;
-    }
-    report.counts.courses = rows.len();
     for course in &courses {
-        let label = course_label(course);
-        match sync_course(store, &client, course, &now, &mut report).await {
-            Ok(()) => {}
-            Err(e) => report.errors.push(format!("{label}: {e}")),
+        if let Err(e) = sync_course(store, &client, course, &now, &mut report, force).await {
+            report.errors.push(format!("{}: {e}", course.name));
         }
     }
 
@@ -115,12 +133,40 @@ pub async fn sync_all(store: &Store, connection: &Connection) -> SyncReport {
     report
 }
 
+/// Freshness timestamps describe complete successful lists, never attempts.
+fn fresh(store: &Store, key: &str, seconds: i64) -> bool {
+    store
+        .last_sync(key)
+        .ok()
+        .flatten()
+        .and_then(|v| chrono::DateTime::parse_from_rfc3339(&v).ok())
+        .map(|at| {
+            let age = Utc::now().signed_duration_since(at);
+            age >= chrono::Duration::zero() && age < chrono::Duration::seconds(seconds)
+        })
+        .unwrap_or(false)
+}
+
+pub fn files_fresh(store: &Store, connection: &Connection, course: &str) -> bool {
+    connection.client().ok().is_some_and(|client| {
+        let key = format!("{}|course:{course}|files", client.base_url());
+        fresh(store, &key, 300) || fresh(store, &format!("{key}|missing"), 1800)
+    })
+}
+
 /// Only a complete successful run advances the successful-sync timestamp.
 fn finish_sync(store: &Store, now: &str, report: &mut SyncReport) {
-    if let Err(e) = store.rebuild_search() {
-        report.errors.push(format!("could not update search: {e}"));
+    if report.requested {
+        if let Err(e) = store.rebuild_search() {
+            report.errors.push(format!("could not update search: {e}"));
+        }
     }
-    if let Err(e) = store.record_sync_outcome(now, &report.errors) {
+    let outcome = if !report.requested && report.ok() {
+        store.record_sync("last_result", "Cached data is fresh")
+    } else {
+        store.record_sync_outcome(now, &report.errors)
+    };
+    if let Err(e) = outcome {
         report
             .errors
             .push(format!("could not record sync result: {e}"));
@@ -130,146 +176,207 @@ fn finish_sync(store: &Store, now: &str, report: &mut SyncReport) {
 async fn sync_course(
     store: &Store,
     client: &CanvasClient,
-    course: &cv::Course,
+    course: &st::Course,
     now: &str,
     report: &mut SyncReport,
+    force: bool,
 ) -> Result<(), String> {
-    let local_id = store
-        .course_local_id(&course.id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| "course missing from local snapshot".to_string())?;
+    let local_id = course.id;
 
     // Assignments (with the caller's submission state).
-    match client.list_assignments(&course.id).await {
-        Ok(items) => {
-            let rows: Vec<_> = items
-                .iter()
-                .map(|a| map_assignment(local_id, a, now))
-                .collect();
-            store
-                .apply_snapshot(st::Snapshot::Assignments(local_id, &rows))
-                .map_err(|e| e.to_string())?;
-            report.counts.assignments += rows.len();
+    let key = format!(
+        "{}|course:{}|assignments",
+        client.base_url(),
+        course.canvas_id
+    );
+    if force || (!fresh(store, &key, 300) && !fresh(store, &format!("{key}|missing"), 1800)) {
+        report.requested = true;
+        let errors_before = report.errors.len();
+        match client.list_assignments(&course.canvas_id).await {
+            Ok(items) => {
+                let rows: Vec<_> = items
+                    .iter()
+                    .map(|a| map_assignment(local_id, a, now))
+                    .collect();
+                store
+                    .apply_snapshot(st::Snapshot::Assignments(local_id, &rows))
+                    .map_err(|e| e.to_string())?;
+                report.counts.assignments += rows.len();
+                if report.errors.len() == errors_before {
+                    store.record_sync(&key, now).map_err(|e| e.to_string())?;
+                    store
+                        .record_sync(&format!("{key}|missing"), "")
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+            Err(e) => return Err(friendly(&e, "assignments")),
         }
-        Err(e) => return Err(friendly(&e, "assignments")),
     }
 
     // Announcements.
-    match client.list_announcements(&course.id).await {
-        Ok(topics) => {
-            let rows: Vec<_> = topics
-                .iter()
-                .map(|a| map_announcement(local_id, a, now))
-                .collect();
-            store
-                .apply_snapshot(st::Snapshot::Announcements(local_id, &rows))
-                .map_err(|e| e.to_string())?;
-            report.counts.announcements += rows.len();
+    let key = format!(
+        "{}|course:{}|announcements",
+        client.base_url(),
+        course.canvas_id
+    );
+    if force || (!fresh(store, &key, 300) && !fresh(store, &format!("{key}|missing"), 1800)) {
+        report.requested = true;
+        let errors_before = report.errors.len();
+        match client.list_announcements(&course.canvas_id).await {
+            Ok(topics) => {
+                let rows: Vec<_> = topics
+                    .iter()
+                    .map(|a| map_announcement(local_id, a, now))
+                    .collect();
+                store
+                    .apply_snapshot(st::Snapshot::Announcements(local_id, &rows))
+                    .map_err(|e| e.to_string())?;
+                report.counts.announcements += rows.len();
+                if report.errors.len() == errors_before {
+                    store.record_sync(&key, now).map_err(|e| e.to_string())?;
+                    store
+                        .record_sync(&format!("{key}|missing"), "")
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+            Err(e) => return Err(friendly(&e, "announcements")),
         }
-        Err(e) => return Err(friendly(&e, "announcements")),
     }
 
     // Modules + their items.
-    match client.list_modules(&course.id).await {
-        Ok(modules) => {
-            let rows: Vec<_> = modules
-                .iter()
-                .map(|m| map_module(local_id, m, now))
-                .collect();
-            store
-                .apply_snapshot(st::Snapshot::Modules(local_id, &rows))
-                .map_err(|e| e.to_string())?;
-            report.counts.modules += rows.len();
-            let stored = store.list_modules(local_id).map_err(|e| e.to_string())?;
-            for module in &modules {
-                let module_local = stored
+    let key = format!("{}|course:{}|modules", client.base_url(), course.canvas_id);
+    if force || (!fresh(store, &key, 1800) && !fresh(store, &format!("{key}|missing"), 1800)) {
+        report.requested = true;
+        let errors_before = report.errors.len();
+        match client.list_modules(&course.canvas_id).await {
+            Ok(modules) => {
+                let rows: Vec<_> = modules
                     .iter()
-                    .find(|m| m.canvas_id == module.id)
-                    .ok_or_else(|| "module missing from local snapshot".to_string())?
-                    .id;
-                // An absent/short inline list is not an authoritative empty list.
-                let items = if module.items_count == Some(module.items.len() as i64) {
-                    module.items.clone()
-                } else {
-                    match client.list_module_items(&course.id, &module.id).await {
-                        Ok(items) => items,
-                        Err(e) => {
-                            report.errors.push(format!(
-                                "{}: {}",
-                                course_label(course),
-                                friendly(&e, "module items")
-                            ));
-                            continue;
-                        }
-                    }
-                };
-                let rows: Vec<_> = items
-                    .iter()
-                    .map(|i| map_module_item(local_id, module_local, i, now))
+                    .map(|m| map_module(local_id, m, now))
                     .collect();
                 store
-                    .apply_snapshot(st::Snapshot::ModuleItems(module_local, &rows))
+                    .apply_snapshot(st::Snapshot::Modules(local_id, &rows))
                     .map_err(|e| e.to_string())?;
+                report.counts.modules += rows.len();
+                let stored = store.list_modules(local_id).map_err(|e| e.to_string())?;
+                for module in &modules {
+                    let module_local = stored
+                        .iter()
+                        .find(|m| m.canvas_id == module.id)
+                        .ok_or_else(|| "module missing from local snapshot".to_string())?
+                        .id;
+                    // An absent/short inline list is not an authoritative empty list.
+                    let items = if module.items_count == Some(module.items.len() as i64) {
+                        module.items.clone()
+                    } else {
+                        match client
+                            .list_module_items(&course.canvas_id, &module.id)
+                            .await
+                        {
+                            Ok(items) => items,
+                            Err(e) => {
+                                report.errors.push(format!(
+                                    "{}: {}",
+                                    course.name,
+                                    friendly(&e, "module items")
+                                ));
+                                continue;
+                            }
+                        }
+                    };
+                    let rows: Vec<_> = items
+                        .iter()
+                        .map(|i| map_module_item(local_id, module_local, i, now))
+                        .collect();
+                    store
+                        .apply_snapshot(st::Snapshot::ModuleItems(module_local, &rows))
+                        .map_err(|e| e.to_string())?;
+                }
+                if report.errors.len() == errors_before {
+                    store.record_sync(&key, now).map_err(|e| e.to_string())?;
+                    store
+                        .record_sync(&format!("{key}|missing"), "")
+                        .map_err(|e| e.to_string())?;
+                }
             }
+            Err(e) if e.is_not_found() => {
+                store
+                    .record_sync(&format!("{key}|missing"), now)
+                    .map_err(|e| e.to_string())?;
+            } // older Canvas: skip quietly
+            Err(e) => return Err(friendly(&e, "modules")),
         }
-        Err(e) if e.is_not_found() => {} // older Canvas: skip quietly
-        Err(e) => return Err(friendly(&e, "modules")),
     }
 
     // Wiki pages. The index gives titles and slugs; each page's HTML body comes
     // from the show endpoint, fetched only when it is missing or changed, so a
     // re-sync costs almost nothing.
-    match client.list_pages(&course.id).await {
-        Ok(pages) => {
-            let mut rows = Vec::new();
-            for page in &pages {
-                let key = page
-                    .page_id
-                    .clone()
-                    .or_else(|| page.url.clone())
-                    .unwrap_or_default();
-                let stored = store.get_page(local_id, &key).map_err(|e| e.to_string())?;
-                let revision = page.updated_at.clone().unwrap_or_default();
-                let mut body_failed = false;
-                let body = match &stored {
-                    Some(s) if s.has_body() && s.updated_at == revision => s.body.clone(),
-                    _ => {
-                        let lookup = page.url.clone().unwrap_or_else(|| key.clone());
-                        match client.get_page(&course.id, &lookup).await {
-                            Ok(full) => full.body,
-                            Err(e) if e.is_not_found() => None,
-                            Err(e) if e.is_auth() => return Err(friendly(&e, "pages")),
-                            // Any other failure: keep what we already had.
-                            Err(e) => {
-                                body_failed = true;
-                                report.errors.push(format!(
-                                    "{}: {}",
-                                    course_label(course),
-                                    friendly(&e, "page body")
-                                ));
-                                stored.as_ref().and_then(|s| s.body.clone())
+    let key = format!("{}|course:{}|pages", client.base_url(), course.canvas_id);
+    if force || (!fresh(store, &key, 1800) && !fresh(store, &format!("{key}|missing"), 1800)) {
+        report.requested = true;
+        let errors_before = report.errors.len();
+        match client.list_pages(&course.canvas_id).await {
+            Ok(pages) => {
+                let mut rows = Vec::new();
+                for page in &pages {
+                    let key = page
+                        .page_id
+                        .clone()
+                        .or_else(|| page.url.clone())
+                        .unwrap_or_default();
+                    let stored = store.get_page(local_id, &key).map_err(|e| e.to_string())?;
+                    let revision = page.updated_at.clone().unwrap_or_default();
+                    let mut body_failed = false;
+                    let body = match &stored {
+                        Some(s) if s.has_body() && s.updated_at == revision => s.body.clone(),
+                        _ => {
+                            let lookup = page.url.clone().unwrap_or_else(|| key.clone());
+                            match client.get_page(&course.canvas_id, &lookup).await {
+                                Ok(full) => full.body,
+                                Err(e) if e.is_not_found() => None,
+                                Err(e) if e.is_auth() => return Err(friendly(&e, "pages")),
+                                // Any other failure: keep what we already had.
+                                Err(e) => {
+                                    body_failed = true;
+                                    report.errors.push(format!(
+                                        "{}: {}",
+                                        course.name,
+                                        friendly(&e, "page body")
+                                    ));
+                                    stored.as_ref().and_then(|s| s.body.clone())
+                                }
                             }
                         }
+                    };
+                    let mut row = map_page(local_id, page, body);
+                    // A failed body refresh must be retried next time even when we
+                    // retained an older usable body.
+                    if body_failed {
+                        row.updated_at = stored
+                            .as_ref()
+                            .map(|s| s.updated_at.clone())
+                            .unwrap_or_default();
                     }
-                };
-                let mut row = map_page(local_id, page, body);
-                // A failed body refresh must be retried next time even when we
-                // retained an older usable body.
-                if body_failed {
-                    row.updated_at = stored
-                        .as_ref()
-                        .map(|s| s.updated_at.clone())
-                        .unwrap_or_default();
+                    rows.push(row);
                 }
-                rows.push(row);
+                store
+                    .apply_snapshot(st::Snapshot::Pages(local_id, &rows))
+                    .map_err(|e| e.to_string())?;
+                report.counts.pages += rows.len();
+                if report.errors.len() == errors_before {
+                    store.record_sync(&key, now).map_err(|e| e.to_string())?;
+                    store
+                        .record_sync(&format!("{key}|missing"), "")
+                        .map_err(|e| e.to_string())?;
+                }
             }
-            store
-                .apply_snapshot(st::Snapshot::Pages(local_id, &rows))
-                .map_err(|e| e.to_string())?;
-            report.counts.pages += rows.len();
+            Err(e) if e.is_not_found() => {
+                store
+                    .record_sync(&format!("{key}|missing"), now)
+                    .map_err(|e| e.to_string())?;
+            }
+            Err(e) => return Err(friendly(&e, "pages")),
         }
-        Err(e) if e.is_not_found() => {}
-        Err(e) => return Err(friendly(&e, "pages")),
     }
 
     Ok(())
@@ -287,21 +394,54 @@ pub async fn sync_course_files(
     course_canvas_id: &str,
     course_local_id: st::LocalId,
 ) -> Result<usize, String> {
+    sync_files_with_policy(store, connection, course_canvas_id, course_local_id, true).await
+}
+
+pub async fn sync_files_with_policy(
+    store: &Store,
+    connection: &Connection,
+    course_canvas_id: &str,
+    course_local_id: st::LocalId,
+    force: bool,
+) -> Result<usize, String> {
     let client = connection.client().map_err(|e| e.to_string())?;
+    let key = format!("{}|course:{course_canvas_id}|files", client.base_url());
+    if !force && files_fresh(store, connection, course_canvas_id) {
+        return store
+            .list_files(course_local_id)
+            .map(|rows| rows.len())
+            .map_err(|e| e.to_string());
+    }
     let now = Utc::now().to_rfc3339();
     let mut count = 0;
-    match client.list_folders(course_canvas_id).await {
-        Ok(folders) => {
-            let rows: Vec<_> = folders
-                .iter()
-                .map(|f| map_folder(course_local_id, f, &now))
-                .collect();
-            store
-                .apply_snapshot(st::Snapshot::Folders(course_local_id, &rows))
-                .map_err(|e| e.to_string())?;
+    let folder_key = format!("{}|course:{course_canvas_id}|folders", client.base_url());
+    if force
+        || (!fresh(store, &folder_key, 1800)
+            && !fresh(store, &format!("{folder_key}|missing"), 1800))
+    {
+        match client.list_folders(course_canvas_id).await {
+            Ok(folders) => {
+                let rows: Vec<_> = folders
+                    .iter()
+                    .map(|f| map_folder(course_local_id, f, &now))
+                    .collect();
+                store
+                    .apply_snapshot(st::Snapshot::Folders(course_local_id, &rows))
+                    .map_err(|e| e.to_string())?;
+                store
+                    .record_sync(&format!("{folder_key}|missing"), "")
+                    .map_err(|e| e.to_string())?;
+                store
+                    .record_sync(&folder_key, &now)
+                    .map_err(|e| e.to_string())?;
+            }
+            Err(e) if e.is_not_found() => {
+                store
+                    .record_sync(&format!("{folder_key}|missing"), &now)
+                    .map_err(|e| e.to_string())?;
+            }
+            Err(e) => return Err(friendly(&e, "folders")),
         }
-        Err(e) if e.is_not_found() => {}
-        Err(e) => return Err(friendly(&e, "folders")),
     }
     match client.list_files(course_canvas_id).await {
         Ok(files) => {
@@ -312,12 +452,20 @@ pub async fn sync_course_files(
             store
                 .apply_snapshot(st::Snapshot::Files(course_local_id, &rows))
                 .map_err(|e| e.to_string())?;
+            store
+                .record_sync(&format!("{key}|missing"), "")
+                .map_err(|e| e.to_string())?;
             count = rows.len();
         }
-        Err(e) if e.is_not_found() => {}
+        Err(e) if e.is_not_found() => {
+            store
+                .record_sync(&format!("{key}|missing"), &now)
+                .map_err(|e| e.to_string())?;
+        }
         Err(e) => return Err(friendly(&e, "files")),
     }
     store.rebuild_search().map_err(|e| e.to_string())?;
+    store.record_sync(&key, &now).map_err(|e| e.to_string())?;
 
     Ok(count)
 }
@@ -581,6 +729,7 @@ mod tests {
     struct CanvasFixture {
         connection: Connection,
         stop: Arc<AtomicBool>,
+        hits: Arc<std::sync::Mutex<Vec<String>>>,
         thread: Option<std::thread::JoinHandle<()>>,
     }
 
@@ -591,6 +740,8 @@ mod tests {
             listener.set_nonblocking(true).unwrap();
             let stop = Arc::new(AtomicBool::new(false));
             let shutdown = stop.clone();
+            let hits = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let requests = hits.clone();
             let routes: Vec<_> = routes
                 .into_iter()
                 .map(|(p, s, b)| (p.to_string(), s, b.to_string()))
@@ -613,6 +764,7 @@ mod tests {
                             }
                             let request = String::from_utf8_lossy(&request);
                             let path = request.split_whitespace().nth(1).unwrap();
+                            requests.lock().unwrap().push(path.to_string());
                             let route = routes
                                 .iter()
                                 .find(|(p, _, _)| path == p || path.split('?').next() == Some(p));
@@ -638,11 +790,9 @@ mod tests {
                 }
             });
             Self {
-                connection: Connection {
-                    base_url: format!("http://{address}"),
-                    token: "fixture-token".into(),
-                },
+                connection: Connection::new(format!("http://{address}"), "fixture-token".into()),
                 stop,
+                hits,
                 thread: Some(thread),
             }
         }
@@ -666,6 +816,114 @@ mod tests {
             .unwrap();
         store.record_sync("last", "2026-01-01T00:00:00Z").unwrap();
         cid
+    }
+
+    #[test]
+    fn automatic_sync_skips_fresh_sections_but_explicit_sync_fetches_them() {
+        let store = Store::open_in_memory().unwrap();
+        let fixture = CanvasFixture::new(vec![
+            ("/api/v1/courses", 200, json!([{"id": "1"}])),
+            ("/api/v1/courses/1/assignments", 200, json!([])),
+            ("/api/v1/courses/1/discussion_topics", 200, json!([])),
+            ("/api/v1/courses/1/modules", 200, json!([])),
+            ("/api/v1/courses/1/pages", 200, json!([])),
+        ]);
+        let run = |force| {
+            crate::runtime::runtime().block_on(sync_with_policy(&store, &fixture.connection, force))
+        };
+        assert!(run(false).ok());
+        assert_eq!(fixture.hits.lock().unwrap().len(), 5);
+        let last_remote = store.last_sync("last").unwrap();
+        assert!(run(false).ok());
+        assert_eq!(fixture.hits.lock().unwrap().len(), 5);
+        assert_eq!(store.last_sync("last").unwrap(), last_remote);
+        assert_eq!(
+            store.last_sync("last_result").unwrap().as_deref(),
+            Some("Cached data is fresh")
+        );
+        // Only assignments and announcements expire at five minutes.
+        for section in ["courses", "course:1|assignments", "course:1|announcements"] {
+            store
+                .record_sync(
+                    &format!(
+                        "{}|{section}",
+                        fixture.connection.client().unwrap().base_url()
+                    ),
+                    &(Utc::now() - chrono::Duration::minutes(6)).to_rfc3339(),
+                )
+                .unwrap();
+        }
+        assert!(run(false).ok());
+        assert_eq!(fixture.hits.lock().unwrap().len(), 8);
+        assert!(run(true).ok());
+        assert_eq!(fixture.hits.lock().unwrap().len(), 13);
+    }
+
+    #[test]
+    fn automatic_file_refresh_reuses_cache_and_force_bypasses_it() {
+        let store = Store::open_in_memory().unwrap();
+        let cid = seed(&store);
+        let fixture = CanvasFixture::new(vec![
+            ("/api/v1/courses/1/folders", 200, json!([])),
+            (
+                "/api/v1/courses/1/files",
+                200,
+                json!([{"id": "f", "display_name": "Notes"}]),
+            ),
+        ]);
+        let run = |force| {
+            crate::runtime::runtime().block_on(sync_files_with_policy(
+                &store,
+                &fixture.connection,
+                "1",
+                cid,
+                force,
+            ))
+        };
+        assert_eq!(run(false).unwrap(), 1);
+        assert_eq!(run(false).unwrap(), 1);
+        assert_eq!(fixture.hits.lock().unwrap().len(), 2);
+        let key = format!(
+            "{}|course:1|files",
+            fixture.connection.client().unwrap().base_url()
+        );
+        store
+            .record_sync(
+                &key,
+                &(Utc::now() - chrono::Duration::minutes(6)).to_rfc3339(),
+            )
+            .unwrap();
+        assert_eq!(run(false).unwrap(), 1);
+        // Folder metadata remains fresh for thirty minutes.
+        assert_eq!(fixture.hits.lock().unwrap().len(), 3);
+        assert_eq!(run(true).unwrap(), 1);
+        assert_eq!(fixture.hits.lock().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn failed_sections_are_not_marked_fresh() {
+        let store = Store::open_in_memory().unwrap();
+        seed(&store);
+        let fixture = CanvasFixture::new(vec![
+            ("/api/v1/courses", 200, json!([{"id": "1"}])),
+            ("/api/v1/courses/1/assignments", 500, json!({})),
+        ]);
+        for _ in 0..2 {
+            let report = crate::runtime::runtime().block_on(sync_with_policy(
+                &store,
+                &fixture.connection,
+                false,
+            ));
+            assert!(!report.ok());
+        }
+        let hits = fixture.hits.lock().unwrap();
+        assert_eq!(hits.iter().filter(|p| p.contains("assignments")).count(), 2);
+        assert_eq!(
+            hits.iter()
+                .filter(|p| p.starts_with("/api/v1/courses?"))
+                .count(),
+            1
+        );
     }
 
     #[test]

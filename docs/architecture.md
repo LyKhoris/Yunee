@@ -101,8 +101,9 @@ A handful of indexes back the queries the sync and UI lean on:
 `idx_module_items_module`, `idx_files_course`, `idx_folders_course`,
 `idx_pages_course`.
 
-The Files tab renders cached rows immediately, refreshes when opened, and has
-an explicit refresh/retry button. A per-course in-flight guard suppresses
+The Files tab renders cached rows immediately, refreshes when opened if its
+last successful list is at least five minutes old, and has an explicit
+refresh/retry button that bypasses freshness windows. A per-course in-flight guard suppresses
 concurrent loads. Errors remain visible with the cache; full sync still avoids
 sweeping files for every course.
 
@@ -119,6 +120,11 @@ operators a user types are treated literally, never as syntax.
 
 GTK's main loop is not async, so Yunee keeps the two worlds separate:
 
+- **One shared Canvas client per active connection.** `AppState` reuses a
+  `Connection` whose clones share an `Arc<CanvasClient>`. The client owns a FIFO
+  async mutex held through response headers and any retries, plus shared quota
+  observations and cooldown. API calls and downloads use this path. Image loads
+  also share pending work: one download fans out to all waiting widgets.
 - **One Tokio runtime** for the whole process, created lazily on first use
   (`runtime::runtime()`): a multi-thread runtime with four worker threads, all
   named `yunee-net`.
@@ -137,6 +143,16 @@ GTK's main loop is not async, so Yunee keeps the two worlds separate:
   than cascading a panic into every later query.
 - **Pages read locally.** The UI render functions only ever read from the store.
   Data freshness is a side effect of sync, not a precondition of drawing.
+
+Startup sync checks persisted per-section freshness rather than refetching
+all lists: courses, assignments and announcements use a five-minute window;
+modules, page indexes and folders use thirty minutes. Optional 404s have a
+thirty-minute recheck window. Timestamps are keyed by Canvas origin and target;
+only successful complete snapshots mark a section fresh. Manual Sync forces
+complete lists for all core sections; on-demand files have their own Refresh
+button. An automatic run that finds all data fresh preserves the previous
+successful remote-sync timestamp and reports that cached data is fresh.
+These are refresh windows when work is requested, not a background timer.
 
 A sync therefore looks, from the user's side, like: press Sync (or start the app
 with a connection configured) → a toast appears → later the pages refresh and,

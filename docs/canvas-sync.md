@@ -30,8 +30,8 @@ clear that scope; failed requests, incomplete pagination, and optional 404s
 preserve it. Existing local read markers and saved file paths survive upserts.
 Module items use the paginated items endpoint when Canvas omits or truncates the
 inline list (see [Canvas modules documentation](https://canvas.instructure.com/doc/api/modules.html)).
-Files refresh on opening their tab and through its refresh/retry button while
-cached rows remain visible. They are still excluded from the full course sweep.
+Files refresh on opening their tab when five minutes old and immediately
+through its refresh/retry button, while cached rows remain visible. They are still excluded from the full course sweep.
 A partial sync does not advance the last successful timestamp; Settings displays
 the latest attempt and outcome separately. A course failing does not abort the others; its error is
 collected and reported while the rest of the sync proceeds. See
@@ -61,15 +61,29 @@ one page of assignments or files is fully synced.
 
 Canvas returns rate-limit information in `X-Rate-Limit-Remaining`. Yunee:
 
-- watches that header on every response and remembers the remaining budget;
-- pauses briefly before a request when the budget is nearly spent, which keeps a
-  first full sync (a large burst) from tripping the bucket;
-- retries HTTP 403 and 429 with exponential backoff, honoring `Retry-After` when
-  Canvas sends it, up to a bounded number of attempts before giving up with a
-  `RateLimited` error.
+- shares one serial request queue, HTTP client and cooldown across sync,
+  page loads, downloads and read markers;
+- watches `X-Rate-Limit-Remaining` and `X-Request-Cost` on responses;
+- increases pacing near a reserve sized using observed request cost;
+  this is a conservative heuristic, not an assumption about an instance's refill
+  rate;
+- retries HTTP 429 and explicitly identified rate-limit 403s with bounded
+  exponential backoff, honoring the full `Retry-After` duration (seconds or an
+  HTTP date). Permission-denied 403s fail immediately. A final throttled attempt
+  leaves a cooldown in place for later queued jobs.
 
-A single client issuing one request at a time is unlikely to be throttled, but the
-guard makes a large first sync safe.
+Canvas documents additional penalties for parallel requests; serial requests
+are unlikely to be throttled under its default quota behavior. See
+[Canvas throttling](https://developerdocs.instructure.com/services/canvas/basics/file.throttling).
+The queue reduces this risk without promising that throttling cannot occur.
+
+Automatic startup refresh also skips fresh complete snapshots: courses,
+assignments and announcements use five minutes, modules/page indexes/folders
+thirty minutes. Files remain on demand with a five-minute window. Explicit
+refresh bypasses freshness, while still obeying queueing and cooldowns. Missing
+optional endpoints are checked again after thirty minutes. Failed requests do
+not mark targets fresh. Every actual refresh still fetches complete paginated
+lists, so deletion reconciliation remains safe.
 
 ### 3. Feature detection (404 → `NotFound`)
 

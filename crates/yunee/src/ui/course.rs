@@ -80,7 +80,7 @@ pub fn open(ui: &Rc<Ui>, course: st::Course) {
     if remembered == "files" && ui.files_attempted.borrow_mut().insert(course.id) {
         let ui = ui.clone();
         let course = course.clone();
-        glib::idle_add_local_once(move || ui.load_course_files(course));
+        glib::idle_add_local_once(move || ui.load_course_files_if_stale(course));
     }
     {
         let ui = ui.clone();
@@ -90,7 +90,7 @@ pub fn open(ui: &Rc<Ui>, course: st::Course) {
             if let Some(name) = s.visible_child_name() {
                 ui.course_tab.borrow_mut().insert(id, name.to_string());
                 if name == "files" {
-                    ui.load_course_files(course.clone());
+                    ui.load_course_files_if_stale(course.clone());
                 }
             }
         });

@@ -88,6 +88,7 @@ pub struct Ui {
     pub(crate) pages_attempted: RefCell<HashSet<String>>,
     /// Decoded images, keyed by URL, so re-rendering a page does not refetch.
     pub(crate) image_cache: RefCell<HashMap<String, gdk::Texture>>,
+    images_loading: RefCell<HashMap<String, Vec<(gtk::Picture, gtk::Spinner)>>>,
     /// The content navigation stack; the last entry is what is on screen.
     pub(crate) screens: RefCell<Vec<Screen>>,
     /// The last course tab viewed, per course, so returning from a detail lands
@@ -220,6 +221,7 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         files_errors: RefCell::new(HashMap::new()),
         pages_attempted: RefCell::new(HashSet::new()),
         image_cache: RefCell::new(HashMap::new()),
+        images_loading: RefCell::new(HashMap::new()),
         screens: RefCell::new(Vec::new()),
         course_tab: RefCell::new(HashMap::new()),
         dashboard_page,
@@ -268,7 +270,7 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     }
 
     if ui.state.connection().is_some() {
-        ui.sync_now();
+        ui.start_sync(false);
     }
 
     window.present();
@@ -751,6 +753,10 @@ impl Ui {
     // ------------------------------------------------------------------
 
     pub(crate) fn sync_now(self: &Rc<Self>) {
+        self.start_sync(true);
+    }
+
+    fn start_sync(self: &Rc<Self>, force: bool) {
         if self.syncing.get() {
             return;
         }
@@ -765,7 +771,13 @@ impl Ui {
         let ui = self.clone();
         let (tx, rx) = async_channel::bounded(1);
         std::thread::spawn(move || {
-            let report = runtime().block_on(sync::sync_all(&state.store, &connection));
+            let report = runtime().block_on(async {
+                if force {
+                    sync::sync_all(&state.store, &connection).await
+                } else {
+                    sync::sync_with_policy(&state.store, &connection, false).await
+                }
+            });
             let _ = tx.send_blocking(report);
         });
         glib::MainContext::default().spawn_local(async move {
@@ -814,7 +826,9 @@ impl Ui {
                 .show();
         }
 
-        if report.ok() {
+        if report.ok() && !report.requested {
+            self.toast("Canvas data is up to date.");
+        } else if report.ok() {
             let c = &report.counts;
             self.toast(&format!(
                 "Synced {} course(s), {} assignment(s), {} announcement(s).",
@@ -856,9 +870,20 @@ impl Ui {
 
     /// Load one course's files on demand (the Files tab is the only caller).
     pub(crate) fn load_course_files(self: &Rc<Self>, course: st::Course) {
+        self.load_course_files_with_policy(course, true);
+    }
+
+    pub(crate) fn load_course_files_if_stale(self: &Rc<Self>, course: st::Course) {
+        self.load_course_files_with_policy(course, false);
+    }
+
+    fn load_course_files_with_policy(self: &Rc<Self>, course: st::Course, force: bool) {
         let Some(connection) = self.state.connection() else {
             return;
         };
+        if !force && sync::files_fresh(&self.state.store, &connection, &course.canvas_id) {
+            return;
+        }
         if !self.files_loading.borrow_mut().insert(course.id) {
             return;
         }
@@ -870,12 +895,14 @@ impl Ui {
         let local_id = course.id;
         let (tx, rx) = async_channel::bounded(1);
         std::thread::spawn(move || {
-            let result = runtime().block_on(sync::sync_course_files(
-                &store,
-                &connection,
-                &canvas_id,
-                local_id,
-            ));
+            let result = runtime().block_on(async {
+                if force {
+                    sync::sync_course_files(&store, &connection, &canvas_id, local_id).await
+                } else {
+                    sync::sync_files_with_policy(&store, &connection, &canvas_id, local_id, false)
+                        .await
+                }
+            });
             let _ = tx.send_blocking(result);
         });
         glib::MainContext::default().spawn_local(async move {
@@ -934,6 +961,14 @@ impl Ui {
         picture: gtk::Picture,
         spinner: gtk::Spinner,
     ) {
+        {
+            let mut pending = self.images_loading.borrow_mut();
+            if let Some(waiters) = pending.get_mut(&src) {
+                waiters.push((picture, spinner));
+                return;
+            }
+            pending.insert(src.clone(), vec![(picture, spinner)]);
+        }
         let connection = self.state.connection();
         let resolved = self.resolve_url(&src);
         let ui = self.clone();
@@ -950,15 +985,27 @@ impl Ui {
             let _ = tx.send_blocking(result);
         });
         glib::MainContext::default().spawn_local(async move {
-            if let Ok(Ok(bytes)) = rx.recv().await {
-                let gbytes = glib::Bytes::from_owned(bytes);
-                if let Ok(texture) = gdk::Texture::from_bytes(&gbytes) {
-                    ui.image_cache.borrow_mut().insert(src, texture.clone());
-                    picture.set_paintable(Some(&texture));
-                }
+            let texture = match rx.recv().await {
+                Ok(Ok(bytes)) => gdk::Texture::from_bytes(&glib::Bytes::from_owned(bytes)).ok(),
+                _ => None,
+            };
+            if let Some(texture) = &texture {
+                ui.image_cache
+                    .borrow_mut()
+                    .insert(src.clone(), texture.clone());
             }
-            spinner.stop();
-            spinner.set_visible(false);
+            let waiters = ui
+                .images_loading
+                .borrow_mut()
+                .remove(&src)
+                .unwrap_or_default();
+            for (picture, spinner) in waiters {
+                if let Some(texture) = &texture {
+                    picture.set_paintable(Some(texture));
+                }
+                spinner.stop();
+                spinner.set_visible(false);
+            }
         });
     }
 
