@@ -51,6 +51,14 @@ reached a shared server.
 
 ## Product identity — decided 2026-10-08
 
+**Dashboard layout — decided 2026-10-10.** To Do and new announcements share
+two equally sized columns on wide windows and stack below 800 logical pixels
+of content width. Each section has a count and an explicit empty state. Task
+rows show a short course code, due date, points, and submission status; overdue
+work is grouped separately from upcoming work. The existing 12-task, 21-day
+selection and announcement selection remain unchanged. Layout and resizing
+read only local data and do not trigger Canvas requests.
+
 **"A better Canvas client first."** The app's spine is Canvas: courses,
 assignments with submission status, announcements with read tracking, modules and
 items, folders and files, and grade views, synced to local SQLite

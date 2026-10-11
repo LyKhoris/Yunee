@@ -95,6 +95,7 @@ pub struct Ui {
     /// back where you left off.
     pub(crate) course_tab: RefCell<HashMap<st::LocalId, String>>,
     pub(crate) dashboard_page: gtk::Box,
+    pub(crate) dashboard_columns: gtk::Box,
     pub(crate) course_page: gtk::Box,
     pub(crate) detail_page: gtk::Box,
     pub(crate) settings_page: gtk::Box,
@@ -169,6 +170,8 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
     content_header.pack_end(&menu_button);
 
     let dashboard_page = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    let dashboard_columns = gtk::Box::new(gtk::Orientation::Horizontal, 24);
+    dashboard_columns.set_homogeneous(true);
     let course_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
     let detail_page = gtk::Box::new(gtk::Orientation::Vertical, 8);
     let settings_page = gtk::Box::new(gtk::Orientation::Vertical, 8);
@@ -181,7 +184,22 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
 
     let content = gtk::Stack::new();
     content.set_transition_type(gtk::StackTransitionType::Crossfade);
-    content.add_titled(&scroll(&dashboard_page), Some("dashboard"), "Dashboard");
+    let dashboard_bin = adw::BreakpointBin::new();
+    dashboard_bin.set_size_request(320, 200);
+    dashboard_bin.set_child(Some(&scroll(&dashboard_page)));
+    let narrow = adw::Breakpoint::new(adw::BreakpointCondition::new_length(
+        adw::BreakpointConditionLengthType::MaxWidth,
+        800.0,
+        adw::LengthUnit::Px,
+    ));
+    narrow.add_setter(
+        &dashboard_columns,
+        "orientation",
+        Some(&gtk::Orientation::Vertical.to_value()),
+    );
+    narrow.add_setter(&dashboard_columns, "homogeneous", Some(&false.to_value()));
+    dashboard_bin.add_breakpoint(narrow);
+    content.add_titled(&dashboard_bin, Some("dashboard"), "Dashboard");
     content.add_titled(&course_page, Some("course"), "Course");
     content.add_titled(&scroll(&detail_page), Some("detail"), "Detail");
     content.add_titled(&scroll(&settings_page), Some("settings"), "Settings");
@@ -225,6 +243,7 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         screens: RefCell::new(Vec::new()),
         course_tab: RefCell::new(HashMap::new()),
         dashboard_page,
+        dashboard_columns,
         course_page,
         detail_page,
         settings_page,
@@ -1089,7 +1108,7 @@ impl Ui {
 
 /// A compact course label for the sidebar: drop the term prefix and the
 /// trailing CRN, e.g. "Fall 2026 ANTH 300-01 16568" → "ANTH 300-01".
-fn short_course_name(name: &str) -> String {
+pub(super) fn short_course_name(name: &str) -> String {
     const SEASONS: [&str; 4] = ["Fall", "Spring", "Summer", "Winter"];
     let mut rest = name;
     let mut parts = name.splitn(3, ' ');
