@@ -81,7 +81,7 @@ It deliberately fixes three weaknesses of the earlier integration:
 1. **Pagination.** Every list endpoint follows the RFC 8288 `Link: rel="next"`
    header to the end, instead of silently truncating at one page.
 2. **Throttling.** It watches `X-Rate-Limit-Remaining`, pauses briefly when the
-   budget runs low, and backs off with `Retry-After`-aware delays on HTTP 403/429,
+   budget runs low, and backs off with `Retry-After`-aware delays on rate-limit HTTP 403/429,
    retrying a bounded number of times.
 3. **Feature detection.** HTTP 404 surfaces as `CanvasError::NotFound`, not a
    crash, so callers can degrade gracefully on older or self-hosted Canvas that
@@ -164,7 +164,7 @@ downloaded files remain on disk as the student's saved copies. Module items are
 reconciled only from a complete item list, with a paginated fallback when Canvas
 omits inline items.
 
-Files remain on demand: opening the Files tab refreshes its cached list while
+Files remain on demand: opening the Files tab refreshes a stale cached list while
 showing saved data, and offers an explicit refresh/retry. Overlapping file loads
 are suppressed. Sync bookkeeping distinguishes the latest attempt, its result,
 and the last fully successful sync; partial results never advance the successful
@@ -173,6 +173,24 @@ timestamp. Database and page-body failures are surfaced as partial results.
 Course totals use Canvas's current grade and/or current score only. If neither
 is available, show that the course grade is unavailable; never present a locally
 summed assignment percentage as the course grade, since grading may be weighted.
+
+## Request efficiency — decided 2026-10-10
+
+One shared Canvas client per active address/token owns a serial request queue,
+budget observations, and cooldowns. Sync, page loads, read writes, and downloads
+use it; reconnecting replaces the client. Requests wait for response headers
+before releasing the queue. Pacing uses request cost and remaining budget;
+permission-denied 403s fail immediately unless Canvas explicitly identifies
+rate limiting. Retry-After is respected in full, including HTTP-date values.
+
+Automatic/startup refresh uses successful per-section timestamps: courses,
+assignments, and announcements every five minutes; modules, folders, and page indexes
+every thirty minutes. Files refresh on demand only when five minutes old.
+Explicit Sync/Refresh bypasses these freshness windows, but never the queue or
+cooldown. Optional missing endpoints are checked again after thirty minutes.
+Failed requests never mark a section fresh. No periodic background timer is
+introduced. Full lists are still used whenever a section refreshes, preserving
+safe deletion reconciliation. Pending image loads are shared within a session.
 
 ## Data locations & secrets
 

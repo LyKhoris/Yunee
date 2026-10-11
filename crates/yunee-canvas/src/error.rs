@@ -51,7 +51,7 @@ impl CanvasError {
 /// Backoff schedule, honoring an explicit `Retry-After` when present.
 pub fn backoff(attempt: u32, retry_after: Option<Duration>) -> Duration {
     if let Some(d) = retry_after {
-        return d.min(Duration::from_secs(60));
+        return d;
     }
     // 0.5s, 1s, 2s, 4s, capped.
     let millis = 500u64.saturating_mul(1u64 << attempt.min(5));

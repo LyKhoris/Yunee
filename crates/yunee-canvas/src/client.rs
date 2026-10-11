@@ -33,6 +33,8 @@ pub struct CanvasClient {
     token: String,
     /// Last observed `X-Rate-Limit-Remaining`, in request-cost units.
     remaining: Mutex<Option<f64>>,
+    request_cost: Mutex<Option<f64>>,
+    queue: tokio::sync::Mutex<()>,
     /// Set when Canvas throttles us; every later request waits until it passes,
     /// so one 403/429 slows the whole sync rather than just retrying the one
     /// request that tripped the bucket.
@@ -65,6 +67,8 @@ impl CanvasClient {
             base,
             token: token.to_string(),
             remaining: Mutex::new(None),
+            request_cost: Mutex::new(None),
+            queue: tokio::sync::Mutex::new(()),
             cooldown: Mutex::new(None),
         })
     }
@@ -205,19 +209,7 @@ impl CanvasClient {
     /// attached — Yunee never relies on deprecated verifier links.
     pub async fn download(&self, url: &str) -> Result<Response> {
         let url = Url::parse(url)?;
-        let resp = self.http.get(url).bearer_auth(&self.token).send().await?;
-        if resp.status().is_success() {
-            Ok(resp)
-        } else if resp.status() == 401 {
-            Err(CanvasError::Unauthorized)
-        } else {
-            let status = resp.status().as_u16();
-            let body = resp.text().await.unwrap_or_default();
-            Err(CanvasError::Status {
-                status,
-                body: body.chars().take(300).collect(),
-            })
-        }
+        self.send(|| self.http.get(url.clone())).await
     }
 
     // ----------------------------------------------------------------------
@@ -447,6 +439,9 @@ impl CanvasClient {
     where
         F: Fn() -> reqwest::RequestBuilder,
     {
+        // FIFO queue shared by all callers, including downloads. Keep the
+        // permit during cooldown/retry so later jobs cannot bypass throttling.
+        let _permit = self.queue.lock().await;
         let mut attempt = 0u32;
         loop {
             self.throttle().await;
@@ -468,19 +463,21 @@ impl CanvasClient {
                     url: resp.url().to_string(),
                 });
             }
-            if status == reqwest::StatusCode::FORBIDDEN
-                || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+            let retry_delay = retry_after(resp.headers());
+            let code = status.as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS
+                || (status == reqwest::StatusCode::FORBIDDEN && explicitly_rate_limited(&body))
             {
                 attempt += 1;
+                let wait = backoff(attempt, retry_delay);
+                // Even the last failed attempt leaves a cooldown for other jobs.
+                *self.cooldown.lock().unwrap() = Some(Instant::now() + wait);
                 if attempt > MAX_RETRIES {
                     return Err(CanvasError::RateLimited { attempts: attempt });
                 }
-                let wait = backoff(attempt, retry_after(resp.headers()));
-                *self.cooldown.lock().unwrap() = Some(Instant::now() + wait);
                 continue;
             }
-            let code = status.as_u16();
-            let body = resp.text().await.unwrap_or_default();
             return Err(CanvasError::Status {
                 status: code,
                 body: body.chars().take(500).collect(),
@@ -494,8 +491,16 @@ impl CanvasClient {
             .get("x-rate-limit-remaining")
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.trim().parse::<f64>().ok());
-        if let Some(value) = value {
+        if let Some(value) = value.filter(|v| v.is_finite()) {
             *self.remaining.lock().unwrap() = Some(value);
+        }
+        let cost = headers
+            .get("x-request-cost")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<f64>().ok())
+            .filter(|v| v.is_finite() && *v > 0.0);
+        if let Some(cost) = cost {
+            *self.request_cost.lock().unwrap() = Some(cost);
         }
     }
 
@@ -512,18 +517,39 @@ impl CanvasClient {
             return;
         }
         let remaining = *self.remaining.lock().unwrap();
-        if let Some(remaining) = remaining {
-            // Slow down as the budget thins out.
-            if remaining < 5.0 {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-            }
+        let cost = self.request_cost.lock().unwrap().unwrap_or(1.0);
+        if let Some(delay) = pacing_delay(remaining, cost) {
+            tokio::time::sleep(delay).await;
         }
     }
 }
 
+fn explicitly_rate_limited(body: &str) -> bool {
+    let body = body.to_ascii_lowercase();
+    body.contains("rate limit exceeded") || body.contains("rate_limit_exceeded")
+}
+
+// Request costs are quota units, not seconds. This is conservative adaptive
+// pacing near a reserve, rather than assuming an instance's refill rate.
+fn pacing_delay(remaining: Option<f64>, cost: f64) -> Option<Duration> {
+    let remaining = remaining?;
+    let reserve = (cost * 4.0).max(20.0);
+    if remaining >= reserve {
+        return None;
+    }
+    let pressure = (reserve - remaining.max(0.0)) / reserve;
+    Some(Duration::from_secs_f64((0.25 + pressure * 2.0).min(2.25)))
+}
+
 fn retry_after(headers: &HeaderMap) -> Option<Duration> {
-    let value = headers.get(RETRY_AFTER)?.to_str().ok()?.trim().to_string();
-    value.parse::<u64>().ok().map(Duration::from_secs)
+    let value = headers.get(RETRY_AFTER)?.to_str().ok()?.trim();
+    if let Ok(seconds) = value.parse::<u64>() {
+        return Some(Duration::from_secs(seconds));
+    }
+    let date = chrono::DateTime::parse_from_rfc2822(value).ok()?;
+    (date.with_timezone(&chrono::Utc) - chrono::Utc::now())
+        .to_std()
+        .ok()
 }
 
 fn encode_form(form: &[(String, String)]) -> String {
@@ -586,6 +612,102 @@ fn guess_content_type(filename: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn http_fixture(
+        status: u16,
+        body: &'static str,
+        count: usize,
+    ) -> (String, std::thread::JoinHandle<usize>) {
+        use std::io::{Read, Write};
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let thread = std::thread::spawn(move || {
+            let active = Arc::new(AtomicUsize::new(0));
+            let peak = Arc::new(AtomicUsize::new(0));
+            let mut workers = Vec::new();
+            for index in 0..count {
+                let status = if status == 429 && index > 0 {
+                    200
+                } else {
+                    status
+                };
+                let (mut stream, _) = listener.accept().unwrap();
+                let active = active.clone();
+                let peak = peak.clone();
+                workers.push(std::thread::spawn(move || {
+                    stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                    let mut request = Vec::new();
+                    let mut buf = [0; 1024];
+                    while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                        let n = stream.read(&mut buf).unwrap();
+                        assert!(n > 0);
+                        request.extend_from_slice(&buf[..n]);
+                    }
+                    let current = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(current, Ordering::SeqCst);
+                    std::thread::sleep(Duration::from_millis(40));
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    write!(stream, "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nRetry-After: 0\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                }));
+            }
+            for worker in workers {
+                worker.join().unwrap();
+            }
+            peak.load(Ordering::SeqCst)
+        });
+        (url, thread)
+    }
+
+    #[tokio::test]
+    async fn downloads_and_api_reads_share_one_serial_queue() {
+        let (url, server) = http_fixture(200, r#"{"id":"1"}"#, 2);
+        let client = CanvasClient::new(&url, "fixture").unwrap();
+        let (user, file) = tokio::join!(client.verify_token(), client.download(&url));
+        assert!(user.is_ok());
+        assert!(file.is_ok());
+        assert_eq!(server.join().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn permission_denied_is_not_retried() {
+        let (url, server) = http_fixture(403, r#"{"message":"not authorized"}"#, 1);
+        let client = CanvasClient::new(&url, "fixture").unwrap();
+        assert!(matches!(
+            client.verify_token().await,
+            Err(CanvasError::Status { status: 403, .. })
+        ));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn genuine_throttling_retries_then_succeeds() {
+        let (url, server) = http_fixture(429, r#"{"id":"1"}"#, 2);
+        let client = CanvasClient::new(&url, "fixture").unwrap();
+        assert!(client.verify_token().await.is_ok());
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn pacing_uses_request_cost_and_retry_after_is_not_capped() {
+        assert!(pacing_delay(Some(100.0), 1.0).is_none());
+        assert!(pacing_delay(Some(100.0), 40.0).is_some());
+        assert!(pacing_delay(Some(0.0), 1.0).unwrap() > pacing_delay(Some(15.0), 1.0).unwrap());
+        let mut headers = HeaderMap::new();
+        headers.insert(RETRY_AFTER, "120".parse().unwrap());
+        assert_eq!(backoff(1, retry_after(&headers)), Duration::from_secs(120));
+        let date = (chrono::Utc::now() + chrono::Duration::seconds(120))
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+        headers.insert(RETRY_AFTER, date.parse().unwrap());
+        let seconds = retry_after(&headers).unwrap().as_secs();
+        assert!((118..=120).contains(&seconds));
+        assert!(explicitly_rate_limited("Rate Limit Exceeded"));
+        assert!(!explicitly_rate_limited("Insufficient permissions"));
+    }
 
     #[test]
     fn normalizes_bases() {
