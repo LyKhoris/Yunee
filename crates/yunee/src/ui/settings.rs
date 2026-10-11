@@ -91,10 +91,26 @@ pub fn render(ui: &Rc<Ui>) {
         .unwrap_or_else(|| "Never".into());
     sync_group.add(
         &adw::ActionRow::builder()
-            .title("Last synced")
+            .title("Last successful sync")
             .subtitle(&last)
             .build(),
     );
+    if let Some(attempt) = ui.state.store.last_sync("last_attempt").ok().flatten() {
+        sync_group.add(
+            &adw::ActionRow::builder()
+                .title("Latest sync attempt")
+                .subtitle(format::due_label(&attempt))
+                .build(),
+        );
+    }
+    if let Some(result) = ui.state.store.last_sync("last_result").ok().flatten() {
+        let row = adw::ActionRow::builder()
+            .title("Latest sync result")
+            .subtitle(result)
+            .build();
+        row.set_subtitle_lines(3);
+        sync_group.add(&row);
+    }
     let (row, button) = row_button("Sync now", "Pull the latest from Canvas", "Sync", "flat");
     {
         let ui = ui.clone();

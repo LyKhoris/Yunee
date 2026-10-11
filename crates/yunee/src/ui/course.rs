@@ -77,12 +77,21 @@ pub fn open(ui: &Rc<Ui>, course: st::Course) {
         .cloned()
         .unwrap_or_else(|| "overview".into());
     stack.set_visible_child_name(&remembered);
+    if remembered == "files" && ui.files_attempted.borrow_mut().insert(course.id) {
+        let ui = ui.clone();
+        let course = course.clone();
+        glib::idle_add_local_once(move || ui.load_course_files(course));
+    }
     {
         let ui = ui.clone();
         let id = course.id;
+        let course = course.clone();
         stack.connect_visible_child_name_notify(move |s| {
             if let Some(name) = s.visible_child_name() {
                 ui.course_tab.borrow_mut().insert(id, name.to_string());
+                if name == "files" {
+                    ui.load_course_files(course.clone());
+                }
             }
         });
     }
@@ -160,12 +169,8 @@ fn build_overview(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
     if let Some(term) = &course.term {
         bits.push(term.clone());
     }
-    if let Some(grade) = &course.current_grade {
-        let score = course
-            .current_score
-            .map(|s| format!(" ({s:.1}%)"))
-            .unwrap_or_default();
-        bits.push(format!("Grade {grade}{score}"));
+    if course.current_grade.is_some() || course.current_score.is_some() {
+        bits.push(format!("Grade {}", course_grade(course)));
     }
     if !bits.is_empty() {
         let sub = gtk::Label::new(Some(&bits.join("  ·  ")));
@@ -376,27 +381,50 @@ fn build_files(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
     page.append(&widgets::page_title("Files"));
 
     let files = ui.state.store.list_files(course.id).unwrap_or_default();
+    let loading = ui.files_loading.borrow().contains(&course.id);
+    let refresh = gtk::Button::with_label(if loading {
+        "Refreshing files…"
+    } else {
+        "Refresh files"
+    });
+    refresh.set_halign(gtk::Align::Start);
+    refresh.set_sensitive(!loading && ui.state.connection().is_some());
+    {
+        let ui = ui.clone();
+        let course = course.clone();
+        refresh.connect_clicked(move |_| ui.load_course_files(course.clone()));
+    }
+    page.append(&refresh);
+    let error = ui.files_errors.borrow().get(&course.id).cloned();
+    if let Some(error) = &error {
+        page.append(&widgets::muted(&format!(
+            "Could not refresh files: {error}"
+        )));
+    }
     if files.is_empty() {
-        let first = {
-            let mut attempted = ui.files_attempted.borrow_mut();
-            let first = !attempted.contains(&course.id);
-            attempted.insert(course.id);
-            first
-        };
-        if first && ui.state.connection().is_some() {
-            ui.load_course_files(course.clone());
-            page.append(&widgets::empty_state(
-                "folder-symbolic",
+        let (title, description) = if loading {
+            (
                 "Loading files…",
                 "Fetching this course's files from Canvas.",
-            ));
+            )
+        } else if error.is_some() {
+            ("Files unavailable", "Refresh to try again.")
+        } else if ui.state.connection().is_none() {
+            (
+                "No cached files",
+                "Connect to Canvas to load this course's files.",
+            )
         } else {
-            page.append(&widgets::empty_state(
-                "folder-open-symbolic",
+            (
                 "No files",
-                "Canvas returned no files for this course.",
-            ));
-        }
+                "No files are cached for this course. Refresh to check Canvas.",
+            )
+        };
+        page.append(&widgets::empty_state(
+            "folder-open-symbolic",
+            title,
+            description,
+        ));
         return page;
     }
 
@@ -430,32 +458,14 @@ fn build_grades(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
         .store
         .list_assignments(course.id)
         .unwrap_or_default();
-    if assignments.is_empty() {
-        page.append(&widgets::empty_state(
-            "view-list-symbolic",
-            "No grades",
-            "Nothing has been graded in this course yet.",
-        ));
-        return page;
-    }
-
-    // A total computed from the graded assignments, so it works even when
-    // Canvas does not hand us a course-level grade.
-    let graded: Vec<&st::Assignment> = assignments.iter().filter(|a| a.score.is_some()).collect();
-    let earned: f64 = graded.iter().filter_map(|a| a.score).sum();
-    let possible: f64 = graded.iter().filter_map(|a| a.points_possible).sum();
-    let percent = if possible > 0.0 {
-        earned / possible * 100.0
-    } else {
-        0.0
-    };
-    let grade = course
-        .current_grade
-        .clone()
-        .unwrap_or_else(|| format!("{percent:.1}%"));
+    let graded = assignments
+        .iter()
+        .filter(|a| a.score.is_some() && !a.excused)
+        .count();
     let summary = format!(
-        "{grade}  ·  {earned:.0} / {possible:.0} pts  ·  {} of {} graded",
-        graded.len(),
+        "{}  ·  {} of {} graded",
+        course_grade(course),
+        graded,
         assignments.len()
     );
     let line = gtk::Box::new(gtk::Orientation::Horizontal, 8);
@@ -518,6 +528,16 @@ fn build_grades(ui: &Rc<Ui>, course: &st::Course) -> gtk::Box {
 
     page.append(&view);
     page
+}
+
+/// Canvas's total is authoritative; assignment groups can be weighted.
+fn course_grade(course: &st::Course) -> String {
+    match (course.current_grade.as_deref(), course.current_score) {
+        (Some(grade), Some(score)) => format!("{grade} ({score:.1}%)"),
+        (Some(grade), None) => grade.to_string(),
+        (None, Some(score)) => format!("{score:.1}%"),
+        (None, None) => "Course grade unavailable".to_string(),
+    }
 }
 
 /// A sortable, single-line text column for the grades table.

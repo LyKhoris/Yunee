@@ -29,6 +29,19 @@ pub enum StoreError {
 
 pub type Result<T> = std::result::Result<T, StoreError>;
 
+/// A complete list fetched from Canvas. Only apply after every page succeeds.
+/// Empty lists intentionally remove all cached rows in the given scope.
+pub enum Snapshot<'a> {
+    Courses(&'a [Course]),
+    Assignments(LocalId, &'a [Assignment]),
+    Announcements(LocalId, &'a [Announcement]),
+    Modules(LocalId, &'a [Module]),
+    ModuleItems(LocalId, &'a [ModuleItem]),
+    Folders(LocalId, &'a [Folder]),
+    Files(LocalId, &'a [FileEntry]),
+    Pages(LocalId, &'a [Page]),
+}
+
 /// A single-user local database.
 pub struct Store {
     conn: Mutex<Connection>,
@@ -78,13 +91,154 @@ impl Store {
         Ok(())
     }
 
+    /// Atomically upsert a complete snapshot and prune missing rows. A write
+    /// failure rolls back both updates and deletions. Local read markers and
+    /// downloaded paths survive the existing upsert conflict rules.
+    pub fn apply_snapshot(&self, snapshot: Snapshot<'_>) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        tx.execute_batch("CREATE TEMP TABLE IF NOT EXISTS snapshot_ids (id TEXT PRIMARY KEY); DELETE FROM snapshot_ids;")?;
+        let (table, scope) = match snapshot {
+            Snapshot::Courses(rows) => {
+                for row in rows {
+                    Self::upsert_course_on(&tx, row)?;
+                    tx.execute(
+                        "INSERT OR IGNORE INTO snapshot_ids (id) VALUES (?1)",
+                        [&row.canvas_id],
+                    )?;
+                }
+                ("courses", None)
+            }
+            Snapshot::Assignments(parent, rows) => {
+                for row in rows {
+                    if row.course_id != parent {
+                        return Err(StoreError::Message(
+                            "snapshot row belongs to another scope".into(),
+                        ));
+                    }
+                    Self::upsert_assignment_on(&tx, row)?;
+                    tx.execute(
+                        "INSERT OR IGNORE INTO snapshot_ids (id) VALUES (?1)",
+                        [&row.canvas_id],
+                    )?;
+                }
+                ("assignments", Some(("course_id", parent)))
+            }
+            Snapshot::Announcements(parent, rows) => {
+                for row in rows {
+                    if row.course_id != parent {
+                        return Err(StoreError::Message(
+                            "snapshot row belongs to another scope".into(),
+                        ));
+                    }
+                    Self::upsert_announcement_on(&tx, row)?;
+                    tx.execute(
+                        "INSERT OR IGNORE INTO snapshot_ids (id) VALUES (?1)",
+                        [&row.canvas_id],
+                    )?;
+                }
+                ("announcements", Some(("course_id", parent)))
+            }
+            Snapshot::Modules(parent, rows) => {
+                for row in rows {
+                    if row.course_id != parent {
+                        return Err(StoreError::Message(
+                            "snapshot row belongs to another scope".into(),
+                        ));
+                    }
+                    Self::upsert_module_on(&tx, row)?;
+                    tx.execute(
+                        "INSERT OR IGNORE INTO snapshot_ids (id) VALUES (?1)",
+                        [&row.canvas_id],
+                    )?;
+                }
+                ("modules", Some(("course_id", parent)))
+            }
+            Snapshot::ModuleItems(parent, rows) => {
+                for row in rows {
+                    if row.module_id != parent {
+                        return Err(StoreError::Message(
+                            "snapshot row belongs to another scope".into(),
+                        ));
+                    }
+                    Self::upsert_module_item_on(&tx, row)?;
+                    tx.execute(
+                        "INSERT OR IGNORE INTO snapshot_ids (id) VALUES (?1)",
+                        [&row.canvas_id],
+                    )?;
+                }
+                ("module_items", Some(("module_id", parent)))
+            }
+            Snapshot::Folders(parent, rows) => {
+                for row in rows {
+                    if row.course_id != parent {
+                        return Err(StoreError::Message(
+                            "snapshot row belongs to another scope".into(),
+                        ));
+                    }
+                    Self::upsert_folder_on(&tx, row)?;
+                    tx.execute(
+                        "INSERT OR IGNORE INTO snapshot_ids (id) VALUES (?1)",
+                        [&row.canvas_id],
+                    )?;
+                }
+                ("folders", Some(("course_id", parent)))
+            }
+            Snapshot::Files(parent, rows) => {
+                for row in rows {
+                    if row.course_id != parent {
+                        return Err(StoreError::Message(
+                            "snapshot row belongs to another scope".into(),
+                        ));
+                    }
+                    Self::upsert_file_on(&tx, row)?;
+                    tx.execute(
+                        "INSERT OR IGNORE INTO snapshot_ids (id) VALUES (?1)",
+                        [&row.canvas_id],
+                    )?;
+                }
+                ("files", Some(("course_id", parent)))
+            }
+            Snapshot::Pages(parent, rows) => {
+                for row in rows {
+                    if row.course_id != parent {
+                        return Err(StoreError::Message(
+                            "snapshot row belongs to another scope".into(),
+                        ));
+                    }
+                    Self::upsert_page_on(&tx, row)?;
+                    tx.execute(
+                        "INSERT OR IGNORE INTO snapshot_ids (id) VALUES (?1)",
+                        [&row.canvas_id],
+                    )?;
+                }
+                ("pages", Some(("course_id", parent)))
+            }
+        };
+        // Table and column names above are fixed by the enum, never user input.
+        let missing = "canvas_id NOT IN (SELECT id FROM snapshot_ids)";
+        if let Some((column, parent)) = scope {
+            tx.execute(
+                &format!("DELETE FROM {table} WHERE {column} = ?1 AND {missing}"),
+                [parent],
+            )?;
+        } else {
+            tx.execute(&format!("DELETE FROM {table} WHERE {missing}"), [])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     // ----------------------------------------------------------------------
     // Courses
     // ----------------------------------------------------------------------
 
     /// Insert or update a course by its Canvas id. Returns the local id.
     pub fn upsert_course(&self, c: &Course) -> Result<LocalId> {
-        let conn = self.conn();
+        Self::upsert_course_on(&self.conn(), c)
+    }
+
+    fn upsert_course_on(conn: &Connection, c: &Course) -> Result<LocalId> {
         let id = conn.query_row(
             r#"
             INSERT INTO courses
@@ -158,7 +312,10 @@ impl Store {
     // ----------------------------------------------------------------------
 
     pub fn upsert_assignment(&self, a: &Assignment) -> Result<()> {
-        let conn = self.conn();
+        Self::upsert_assignment_on(&self.conn(), a)
+    }
+
+    fn upsert_assignment_on(conn: &Connection, a: &Assignment) -> Result<()> {
         conn.execute(
             r#"
             INSERT INTO assignments
@@ -254,7 +411,10 @@ impl Store {
 
     /// Upsert but preserve a local read marker if the user already read it.
     pub fn upsert_announcement(&self, a: &Announcement) -> Result<()> {
-        let conn = self.conn();
+        Self::upsert_announcement_on(&self.conn(), a)
+    }
+
+    fn upsert_announcement_on(conn: &Connection, a: &Announcement) -> Result<()> {
         conn.execute(
             r#"
             INSERT INTO announcements
@@ -323,7 +483,10 @@ impl Store {
     // ----------------------------------------------------------------------
 
     pub fn upsert_module(&self, m: &Module) -> Result<LocalId> {
-        let conn = self.conn();
+        Self::upsert_module_on(&self.conn(), m)
+    }
+
+    fn upsert_module_on(conn: &Connection, m: &Module) -> Result<LocalId> {
         let id = conn.query_row(
             r#"
             INSERT INTO modules
@@ -355,7 +518,10 @@ impl Store {
     }
 
     pub fn upsert_module_item(&self, item: &ModuleItem) -> Result<()> {
-        let conn = self.conn();
+        Self::upsert_module_item_on(&self.conn(), item)
+    }
+
+    fn upsert_module_item_on(conn: &Connection, item: &ModuleItem) -> Result<()> {
         conn.execute(
             r#"
             INSERT INTO module_items
@@ -424,7 +590,10 @@ impl Store {
     // ----------------------------------------------------------------------
 
     pub fn upsert_folder(&self, f: &Folder) -> Result<()> {
-        let conn = self.conn();
+        Self::upsert_folder_on(&self.conn(), f)
+    }
+
+    fn upsert_folder_on(conn: &Connection, f: &Folder) -> Result<()> {
         conn.execute(
             r#"
             INSERT INTO folders (canvas_id, course_id, parent_id, name, full_name, updated_at)
@@ -449,7 +618,10 @@ impl Store {
     }
 
     pub fn upsert_file(&self, f: &FileEntry) -> Result<()> {
-        let conn = self.conn();
+        Self::upsert_file_on(&self.conn(), f)
+    }
+
+    fn upsert_file_on(conn: &Connection, f: &FileEntry) -> Result<()> {
         conn.execute(
             r#"
             INSERT INTO files
@@ -528,7 +700,10 @@ impl Store {
     // ----------------------------------------------------------------------
 
     pub fn upsert_page(&self, p: &Page) -> Result<()> {
-        let conn = self.conn();
+        Self::upsert_page_on(&self.conn(), p)
+    }
+
+    fn upsert_page_on(conn: &Connection, p: &Page) -> Result<()> {
         conn.execute(
             r#"
             INSERT INTO pages
@@ -585,7 +760,10 @@ impl Store {
     // ----------------------------------------------------------------------
 
     pub fn record_sync(&self, key: &str, value: &str) -> Result<()> {
-        let conn = self.conn();
+        Self::record_sync_on(&self.conn(), key, value)
+    }
+
+    fn record_sync_on(conn: &Connection, key: &str, value: &str) -> Result<()> {
         conn.execute(
             r#"
             INSERT INTO sync_state (key, value, updated_at) VALUES (?1, ?2, ?3)
@@ -593,6 +771,22 @@ impl Store {
             "#,
             params![key, value, now_iso()],
         )?;
+        Ok(())
+    }
+
+    /// The result and successful timestamp commit together. Partial runs leave
+    /// the previous successful timestamp intact.
+    pub fn record_sync_outcome(&self, now: &str, errors: &[String]) -> Result<()> {
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        let result = if errors.is_empty() {
+            Self::record_sync_on(&tx, "last", now)?;
+            "Complete".to_string()
+        } else {
+            format!("Incomplete: {}", errors.join("; "))
+        };
+        Self::record_sync_on(&tx, "last_result", &result)?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -636,8 +830,9 @@ impl Store {
     /// (one student), so it just runs after each sync instead of tracking
     /// per-row triggers.
     pub fn rebuild_search(&self) -> Result<()> {
-        let conn = self.conn();
-        conn.execute_batch(
+        let mut conn = self.conn();
+        let tx = conn.transaction()?;
+        tx.execute_batch(
             r#"
             DELETE FROM search;
             INSERT INTO search (kind, ref_id, title, body)
@@ -652,6 +847,7 @@ impl Store {
                 SELECT 'page', canvas_id, title, COALESCE(body, '') FROM pages;
             "#,
         )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -943,7 +1139,9 @@ mod tests {
             .unwrap();
         // A later sync pushes the same announcement again.
         a.body = "Moved to Friday (updated)".into();
-        store.upsert_announcement(&a).unwrap();
+        store
+            .apply_snapshot(Snapshot::Announcements(cid, &[a]))
+            .unwrap();
         let list = store.list_announcements(cid).unwrap();
         assert_eq!(list[0].body, "Moved to Friday (updated)");
         assert_eq!(
@@ -979,6 +1177,137 @@ mod tests {
         store.rebuild_search().unwrap();
         let hits = store.search("chapter", 10).unwrap();
         assert!(hits.iter().any(|h| h.kind == "page"));
+    }
+
+    #[test]
+    fn snapshots_prune_only_their_scope_and_empty_lists_clear_it() {
+        let store = Store::open_in_memory().unwrap();
+        let c1 = store.upsert_course(&course("1", "One")).unwrap();
+        let c2 = store.upsert_course(&course("2", "Two")).unwrap();
+        store
+            .upsert_assignment(&assignment(c1, "a", "Old"))
+            .unwrap();
+        store
+            .upsert_assignment(&assignment(c1, "b", "Kept"))
+            .unwrap();
+        store
+            .upsert_assignment(&assignment(c2, "c", "Other course"))
+            .unwrap();
+        let before_id = store.get_assignment_by_canvas_id("b").unwrap().unwrap().id;
+        store
+            .apply_snapshot(Snapshot::Assignments(c1, &[assignment(c1, "b", "Updated")]))
+            .unwrap();
+        let rows = store.list_assignments(c1).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, before_id);
+        assert_eq!(rows[0].name, "Updated");
+        store
+            .apply_snapshot(Snapshot::Assignments(c1, &[]))
+            .unwrap();
+        assert!(store.list_assignments(c1).unwrap().is_empty());
+        assert_eq!(store.list_assignments(c2).unwrap().len(), 1);
+        store.rebuild_search().unwrap();
+        assert!(store.search("Old", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn snapshot_database_failure_rolls_back_updates_and_keeps_missing_rows() {
+        let store = Store::open_in_memory().unwrap();
+        let cid = store.upsert_course(&course("1", "One")).unwrap();
+        store
+            .upsert_assignment(&assignment(cid, "a", "Original"))
+            .unwrap();
+        store
+            .upsert_assignment(&assignment(cid, "b", "Keep on failure"))
+            .unwrap();
+        store.conn().execute_batch("CREATE TRIGGER fail_insert BEFORE INSERT ON assignments WHEN NEW.canvas_id = 'bad' BEGIN SELECT RAISE(ABORT, 'test failure'); END;").unwrap();
+        let result = store.apply_snapshot(Snapshot::Assignments(
+            cid,
+            &[
+                assignment(cid, "a", "Updated"),
+                assignment(cid, "bad", "Fails"),
+            ],
+        ));
+        assert!(result.is_err());
+        let rows = store.list_assignments(cid).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            store
+                .get_assignment_by_canvas_id("a")
+                .unwrap()
+                .unwrap()
+                .name,
+            "Original"
+        );
+        assert!(
+            store
+                .apply_snapshot(Snapshot::Assignments(
+                    cid + 1,
+                    &[assignment(cid, "a", "Wrong scope")]
+                ))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn course_snapshot_cascades_removed_course_metadata() {
+        let store = Store::open_in_memory().unwrap();
+        let c1 = store.upsert_course(&course("1", "One")).unwrap();
+        let c2 = store.upsert_course(&course("2", "Two")).unwrap();
+        store
+            .upsert_assignment(&assignment(c1, "a", "Removed course work"))
+            .unwrap();
+        store
+            .upsert_assignment(&assignment(c2, "b", "Retained course work"))
+            .unwrap();
+        store
+            .apply_snapshot(Snapshot::Courses(&[course("2", "Two updated")]))
+            .unwrap();
+        assert!(store.get_course(c1).unwrap().is_none());
+        assert!(store.list_assignments(c1).unwrap().is_empty());
+        assert_eq!(store.list_assignments(c2).unwrap().len(), 1);
+        assert_eq!(store.list_courses().unwrap()[0].id, c2);
+    }
+
+    #[test]
+    fn file_snapshot_preserves_download_paths() {
+        let store = Store::open_in_memory().unwrap();
+        let cid = store.upsert_course(&course("1", "One")).unwrap();
+        let mut file = FileEntry {
+            id: 0,
+            canvas_id: "f".into(),
+            course_id: cid,
+            folder_id: None,
+            display_name: "Notes".into(),
+            filename: None,
+            content_type: None,
+            size: None,
+            url: None,
+            created_at: None,
+            updated_at: None,
+            local_path: Some("/saved/notes.pdf".into()),
+        };
+        store.upsert_file(&file).unwrap();
+        file.local_path = None;
+        file.display_name = "New notes title".into();
+        store.apply_snapshot(Snapshot::Files(cid, &[file])).unwrap();
+        let rows = store.list_files(cid).unwrap();
+        assert_eq!(rows[0].local_path.as_deref(), Some("/saved/notes.pdf"));
+        assert_eq!(rows[0].display_name, "New notes title");
+        store.apply_snapshot(Snapshot::Files(cid, &[])).unwrap();
+        assert!(store.list_files(cid).unwrap().is_empty());
+    }
+
+    #[test]
+    fn outcome_write_failure_does_not_advance_success_timestamp() {
+        let store = Store::open_in_memory().unwrap();
+        store.record_sync("last", "previous").unwrap();
+        store.conn().execute_batch("CREATE TRIGGER fail_outcome BEFORE INSERT ON sync_state WHEN NEW.key = 'last_result' BEGIN SELECT RAISE(ABORT, 'test failure'); END;").unwrap();
+        assert!(store.record_sync_outcome("new", &[]).is_err());
+        assert_eq!(
+            store.last_sync("last").unwrap().as_deref(),
+            Some("previous")
+        );
     }
 
     #[test]

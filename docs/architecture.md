@@ -22,21 +22,25 @@ and libadwaita, not Relm4.
 
 `yunee::sync::sync_all` is the whole engine. It runs off the UI thread and returns
 a `SyncReport` (counts, per-target errors, and the new unread announcements it
-observed). Nothing in the UI calls Canvas directly except best-effort writes.
+observed). Rendering reads local data; the UI schedules sync, on-demand
+page/image/file loads, downloads, and best-effort writes in background workers.
 
 1. **Start.** `sync_all(&store, &connection)` builds a `CanvasClient` from the
    saved server address and token. If the client cannot be built, the report
    carries the error and the run ends.
 2. **Courses first.** `list_courses` pulls the student's active courses
    (`enrollment_type=student`, `enrollment_state=active`, with teachers, term,
-   enrollments, and total scores included). Each course is upserted and its local
-   id is used for everything below it. If the course list fails, the run ends —
+   enrollments, and total scores included). The complete course list is applied
+   as an atomic snapshot; courses absent
+   from it and their cached child metadata are removed. Its local ids are used
+   for everything below it. If the course list fails, the run ends —
    there is nothing to iterate.
 3. **Per-course pull, with error isolation.** For each course, in sequence:
    - assignments (including the student's own submission via
      `include[]=submission`),
    - announcements (`discussion_topics?only_announcements=true`),
-   - modules with their items (`include[]=items`),
+   - modules with their items (`include[]=items`, with a paginated items
+     fallback when the inline list is absent or incomplete),
    - wiki pages (the index for titles and slugs, one show request per page for
      its HTML body).
 
@@ -48,17 +52,28 @@ observed). Nothing in the UI calls Canvas directly except best-effort writes.
    on to the next course; one broken course never aborts the rest. Within a course,
    a missing endpoint (404) is tolerated quietly where it is optional — modules and
    files are skipped on older Canvas — while a genuine error is recorded.
-4. **Commit the durable side.** `store.rebuild_search()` rebuilds the FTS index
-   from the freshly upserted rows, and `record_sync("last", now)` stores the sync
-   timestamp.
-5. **Notification material.** Finally the engine scans the (up to 50 most recent)
-   announcements for ones that are still unread and whose `posted_at` is newer
-   than the previous sync timestamp. Those become `report.new_unread`, which the UI
-   turns into a GNOME notification.
+4. **Commit the durable side.** Each successful, fully paginated list is
+   applied through `Store::apply_snapshot`: upserts and removal of absent rows
+   commit in one transaction, scoped to the course or module. A failed list or
+   optional 404 leaves its snapshot untouched. Existing read markers and saved
+   download paths survive upserts; downloaded bytes remain the student's copies
+   even if their Canvas metadata disappears. The FTS rebuild is also atomic.
+   Database failures and failed page-body refreshes surface in the report; an
+   older retained page body keeps its old revision so the next sync retries it.
+5. **Bookkeeping.** `last_attempt` records the run's start. `last_result` stores
+   Complete or Incomplete with errors; `last` advances only on a completely
+   successful run, atomically with its result. An interrupted run retains an
+   explicit interrupted status. Settings shows the attempt, result, and last
+   successful sync separately.
+6. **Notification material.** Finally the engine scans the (up to 50 most recent)
+   announcements for unread ids absent from the cache before this run. Those
+   become `report.new_unread`, which the UI turns into a GNOME notification.
+   A partial run does not repeatedly notify about announcements already cached.
 
 Error isolation is a deliberate property: the unit of failure is one course, never
-the whole sync. The UI reports the first error in a toast while keeping every course
-that did succeed.
+the whole sync. The UI reports an incomplete sync and its first error in a
+toast, while keeping successful snapshots. Within a course, a failed section can defer later
+sections until the next run; those cached sections are retained.
 
 ## Store schema overview
 
@@ -85,6 +100,15 @@ A handful of indexes back the queries the sync and UI lean on:
 `idx_assignments_course`, `idx_assignments_due`, `idx_announcements_course`,
 `idx_module_items_module`, `idx_files_course`, `idx_folders_course`,
 `idx_pages_course`.
+
+The Files tab renders cached rows immediately, refreshes when opened, and has
+an explicit refresh/retry button. A per-course in-flight guard suppresses
+concurrent loads. Errors remain visible with the cache; full sync still avoids
+sweeping files for every course.
+
+The Grades tab uses Canvas's current grade and/or current score. Missing course
+totals display as unavailable, even when assignment scores exist, because a sum
+of points cannot account for weighted groups and other grading policies.
 
 Full-text search is rebuilt wholesale after each sync rather than maintained with
 per-row triggers — cheap at one student's scale, and it guarantees the index

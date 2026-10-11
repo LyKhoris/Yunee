@@ -82,6 +82,8 @@ pub struct Ui {
     pub(crate) selected: RefCell<Option<st::Course>>,
     /// Courses whose files we have already tried to load on demand.
     pub(crate) files_attempted: RefCell<HashSet<st::LocalId>>,
+    pub(crate) files_loading: RefCell<HashSet<st::LocalId>>,
+    pub(crate) files_errors: RefCell<HashMap<st::LocalId, String>>,
     /// Pages we have already tried to fetch on demand, keyed by `course|page`.
     pub(crate) pages_attempted: RefCell<HashSet<String>>,
     /// Decoded images, keyed by URL, so re-rendering a page does not refetch.
@@ -214,6 +216,8 @@ pub fn build(app: &adw::Application) -> adw::ApplicationWindow {
         syncing: Cell::new(false),
         selected: RefCell::new(None),
         files_attempted: RefCell::new(HashSet::new()),
+        files_loading: RefCell::new(HashSet::new()),
+        files_errors: RefCell::new(HashMap::new()),
         pages_attempted: RefCell::new(HashSet::new()),
         image_cache: RefCell::new(HashMap::new()),
         screens: RefCell::new(Vec::new()),
@@ -371,6 +375,7 @@ impl Ui {
     }
 
     pub(crate) fn show_course(self: &Rc<Self>, course: st::Course) {
+        self.files_attempted.borrow_mut().remove(&course.id);
         self.select(Screen::Course(course.canvas_id));
     }
 
@@ -408,7 +413,8 @@ impl Ui {
 
     /// Render whatever is on top of the stack (after a sync or a data change).
     pub(crate) fn render_top(self: &Rc<Self>) {
-        match self.screens.borrow().last().cloned() {
+        let top = self.screens.borrow().last().cloned();
+        match top {
             Some(top) => self.render_screen(&top),
             None => self.show_dashboard(),
         }
@@ -516,6 +522,7 @@ impl Ui {
     }
 
     fn gone(self: &Rc<Self>) {
+        self.selected.borrow_mut().take();
         self.toast("That course is no longer available.");
         self.show_dashboard();
     }
@@ -784,6 +791,7 @@ impl Ui {
 
     fn on_sync_done(self: &Rc<Self>, report: SyncReport) {
         self.set_syncing(false);
+        self.files_attempted.borrow_mut().clear();
         self.reload_all();
 
         if !report.new_unread.is_empty() {
@@ -814,7 +822,7 @@ impl Ui {
             ));
         } else {
             let first = report.errors.first().cloned().unwrap_or_default();
-            self.toast(&format!("Synced with a warning — {first}"));
+            self.toast(&format!("Sync incomplete — {first}"));
         }
     }
 
@@ -851,6 +859,11 @@ impl Ui {
         let Some(connection) = self.state.connection() else {
             return;
         };
+        if !self.files_loading.borrow_mut().insert(course.id) {
+            return;
+        }
+        self.files_attempted.borrow_mut().insert(course.id);
+        self.files_errors.borrow_mut().remove(&course.id);
         let store = self.state.store.clone();
         let ui = self.clone();
         let canvas_id = course.canvas_id.clone();
@@ -866,12 +879,23 @@ impl Ui {
             let _ = tx.send_blocking(result);
         });
         glib::MainContext::default().spawn_local(async move {
-            match rx.recv().await {
-                Ok(Ok(_n)) => ui.reload_all(),
-                Ok(Err(e)) => ui.toast(&format!("Could not load files: {e}")),
-                Err(_) => {}
+            let result = rx.recv().await;
+            ui.files_loading.borrow_mut().remove(&local_id);
+            match result {
+                Ok(Ok(_n)) => {}
+                Ok(Err(e)) => {
+                    ui.files_errors.borrow_mut().insert(local_id, e.clone());
+                    ui.toast(&format!("Could not refresh files: {e}"));
+                }
+                Err(_) => {
+                    ui.files_errors
+                        .borrow_mut()
+                        .insert(local_id, "File refresh interrupted".into());
+                }
             }
+            ui.reload_all();
         });
+        self.reload_all();
     }
 
     /// Fetch a single wiki page on demand, then re-render (it may be a course

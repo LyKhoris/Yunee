@@ -154,6 +154,26 @@ They do not license inventing behavior in the Canvas client either.
 product recording others' lectures, still applies for a local single-user tool.
 See `docs/pivot.md`.)*
 
+## Sync freshness & grade accuracy — decided 2026-10-10
+
+Each fully paginated, successful list replaces its local snapshot atomically:
+upsert returned rows and remove rows absent from that list, scoped to the course
+or module. Failed requests, optional 404s, and failed database writes preserve
+the previous snapshot. Removed courses cascade to their cached metadata;
+downloaded files remain on disk as the student's saved copies. Module items are
+reconciled only from a complete item list, with a paginated fallback when Canvas
+omits inline items.
+
+Files remain on demand: opening the Files tab refreshes its cached list while
+showing saved data, and offers an explicit refresh/retry. Overlapping file loads
+are suppressed. Sync bookkeeping distinguishes the latest attempt, its result,
+and the last fully successful sync; partial results never advance the successful
+timestamp. Database and page-body failures are surfaced as partial results.
+
+Course totals use Canvas's current grade and/or current score only. If neither
+is available, show that the course grade is unavailable; never present a locally
+summed assignment percentage as the course grade, since grading may be weighted.
+
 ## Data locations & secrets
 
 Single-user, XDG, no hidden cloud.

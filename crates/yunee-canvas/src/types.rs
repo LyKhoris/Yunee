@@ -179,6 +179,8 @@ pub struct Module {
     pub completed_at: Option<String>,
     #[serde(default)]
     pub items: Vec<ModuleItem>,
+    #[serde(default, deserialize_with = "ids::opt_int")]
+    pub items_count: Option<i64>,
     #[serde(default, deserialize_with = "ids::opt_id")]
     pub course_id: Option<String>,
 }

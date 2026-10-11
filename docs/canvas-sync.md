@@ -24,8 +24,16 @@ not all stored today): `GET /users/self`, `/users/self/todo`,
 `/users/self/missing_submissions`, `/users/self/activity_stream/summary`,
 `/conversations/unread_count`.
 
-Everything is upserted on the Canvas id, so re-running a sync updates rows rather
-than duplicating them. A course failing does not abort the others; its error is
+Each complete successful list atomically upserts by Canvas id and removes
+cached rows absent from that list, scoped to the course or module. Empty lists
+clear that scope; failed requests, incomplete pagination, and optional 404s
+preserve it. Existing local read markers and saved file paths survive upserts.
+Module items use the paginated items endpoint when Canvas omits or truncates the
+inline list (see [Canvas modules documentation](https://canvas.instructure.com/doc/api/modules.html)).
+Files refresh on opening their tab and through its refresh/retry button while
+cached rows remain visible. They are still excluded from the full course sweep.
+A partial sync does not advance the last successful timestamp; Settings displays
+the latest attempt and outcome separately. A course failing does not abort the others; its error is
 collected and reported while the rest of the sync proceeds. See
 `docs/architecture.md` for the full flow.
 

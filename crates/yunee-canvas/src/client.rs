@@ -129,6 +129,17 @@ impl CanvasClient {
         self.get_paged(url).await
     }
 
+    /// Fetch the complete list when Canvas omits inline module items.
+    pub async fn list_module_items(
+        &self,
+        course_id: &str,
+        module_id: &str,
+    ) -> Result<Vec<ModuleItem>> {
+        let mut url = self.endpoint(&format!("/courses/{course_id}/modules/{module_id}/items"))?;
+        url.query_pairs_mut().append_pair("per_page", "100");
+        self.get_paged(url).await
+    }
+
     pub async fn list_folders(&self, course_id: &str) -> Result<Vec<Folder>> {
         let mut url = self.endpoint(&format!("/courses/{course_id}/folders"))?;
         url.query_pairs_mut().append_pair("per_page", "100");
