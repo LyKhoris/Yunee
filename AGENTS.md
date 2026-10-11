@@ -239,9 +239,13 @@ versions, and `flatpak install` compares commits, not versions (it will silently
 downgrade). This supersedes the 2026-10-08 bundle-only decision in commit
 `615da98`.
 
-**No GitHub Releases or publish tags — decided 2026-10-10.** Updates use
-`workflow_dispatch` with an explicit version, without creating GitHub Releases
-or git tags. Obsolete version tags and retired web Production deployment
+**Version tags, no GitHub Releases — decided 2026-10-10.** Updates use
+`workflow_dispatch` with an explicit version. Each successful publish records
+an annotated `v<version>` tag on the exact source commit. Published tags are
+permanent: retain historical tags and never move or reuse a published version.
+The workflow rejects versions whose tag already exists. Historical tags keep
+their original objects, including any older lightweight tags. No GitHub
+Releases or attached bundles are created. Retired web Production deployment
 records are removed. GitHub Pages remains only a host for signed Flatpak files;
 it does not run the application. Updates reach users through
 `flatpak update` / GNOME Software, exactly as above.

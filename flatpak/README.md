@@ -37,13 +37,15 @@ flatpak run io.github.LyKhoris.Yunee
 An update is published with an explicit version:
 
 ```bash
-gh workflow run publish.yml --ref main -f version=0.1.0-beta.7
+gh workflow run publish.yml --ref main -f version=0.1.0-beta.8
 ```
 
 `.github/workflows/publish.yml` builds the app, signs the OSTree repo, and
 publishes it and the `.flatpakref` to `gh-pages`, served at
-<https://lykhoris.github.io/Yunee/>. No GitHub Releases or git tags are created.
-Pages hosts the update files; it does not run the desktop app.
+<https://lykhoris.github.io/Yunee/>. Each successful publish creates an annotated
+`v<version>` tag on its source commit. Keep these tags permanently; an existing
+version tag cannot be reused. No GitHub Releases are created. Pages hosts the
+update files; it does not run the desktop app.
 
 GitHub Pages requires a public repository; `LyKhoris/Yunee` is public.
 

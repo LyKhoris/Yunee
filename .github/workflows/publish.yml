@@ -1,15 +1,16 @@
 name: Publish Flatpak
 
 # Builds and signs the Flatpak update files. Pages hosts those files only;
-# the desktop app is not deployed or run there. No releases or tags are created.
-# gh workflow run publish.yml --ref main -f version=0.1.0-beta.7
+# the desktop app is not deployed or run there. A permanent version tag records
+# each successful publish; no GitHub Releases are created.
+# gh workflow run publish.yml --ref main -f version=0.1.0-beta.8
 # Requires FLATPAK_GPG_KEY and Pages enabled on the gh-pages branch.
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "App version (e.g. 0.1.0-beta.7)"
+        description: "App version (e.g. 0.1.0-beta.8)"
         required: true
         type: string
 
@@ -55,6 +56,11 @@ jobs:
             echo "::error::invalid app version"
             exit 1
           }
+          git fetch --tags origin
+          if git show-ref --verify --quiet "refs/tags/v$version"; then
+            echo "::error::version $version already has a permanent tag; choose a new version"
+            exit 1
+          fi
           date="$(date -u +%Y-%m-%d)"
           sed -i "s/^version = \".*\"/version = \"${version}\"/" Cargo.toml
           sed -i \
@@ -118,3 +124,11 @@ jobs:
           git commit -qm "Publish ${APP_ID} $BUILD_VERSION"
           git push -q --force \
             "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+
+      - name: Record the published source version
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git tag -a "v$BUILD_VERSION" "$GITHUB_SHA" \
+            -m "Yunee $BUILD_VERSION — signed Flatpak update"
+          git push origin "refs/tags/v$BUILD_VERSION"
