@@ -1,29 +1,28 @@
 name: Publish Flatpak
 
-# Builds the Flatpak and publishes a signed OSTree repo to GitHub Pages.
-# There is no GitHub Releases step: a `v*` tag is purely a publish trigger.
-#
-# Push a tag (e.g. `git tag v0.1.0-beta.7 && git push origin v0.1.0-beta.7`).
-#
-# Users install once from the signed repo:
-#
-#   flatpak install --from https://lykhoris.github.io/Yunee/io.github.LyKhoris.Yunee.flatpakref
-#
-# and update with `flatpak update` / GNOME Software from then on.
-#
-# Requires: the FLATPAK_GPG_KEY secret (base64 of the ASCII-armored secret key,
-# see flatpak/README.md) and GitHub Pages enabled on the gh-pages branch.
+# Builds and signs the Flatpak update files. Pages hosts those files only;
+# the desktop app is not deployed or run there. No releases or tags are created.
+# gh workflow run publish.yml --ref main -f version=0.1.0-beta.7
+# Requires FLATPAK_GPG_KEY and Pages enabled on the gh-pages branch.
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "App version (e.g. 0.1.0-beta.7)"
+        required: true
+        type: string
+
+# Only one publisher may replace the update repository at a time.
+concurrency:
+  group: flatpak-publish
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 env:
+  BUILD_VERSION: ${{ inputs.version }}
   APP_ID: io.github.LyKhoris.Yunee
   PAGES_URL: https://lykhoris.github.io/Yunee
 
@@ -48,30 +47,20 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # The version comes from the tag, so it is only meaningful for tag builds.
-      - name: Resolve version
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      # Stamp the tag into the workspace version and the AppStream release, so
-      # every bundle is a distinct version. On workflow_dispatch (no tag) the
-      # committed version is used as-is.
-      - name: Stamp the version from the tag
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Validate and stamp the version
         run: |
           set -euo pipefail
-          version="${{ steps.version.outputs.version }}"
+          version="$BUILD_VERSION"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]] || {
+            echo "::error::invalid app version"
+            exit 1
+          }
           date="$(date -u +%Y-%m-%d)"
           sed -i "s/^version = \".*\"/version = \"${version}\"/" Cargo.toml
           sed -i \
             "s#<release version=\"[^\"]*\" date=\"[^\"]*\">#<release version=\"${version}\" date=\"${date}\">#" \
             data/io.github.LyKhoris.Yunee.metainfo.xml
-          # Keep the lockfile in step with the new workspace versions, or the
-          # offline `--locked` build below refuses to run.
           cargo update --workspace
-          echo "Stamped version ${version}:"
-          grep -n '^version' Cargo.toml
-          grep -n '<release ' data/io.github.LyKhoris.Yunee.metainfo.xml
 
       # Import the repo signing key. It signs both the exported commits and the
       # repo summary; clients verify updates against the public half, which is
@@ -125,7 +114,7 @@ jobs:
           git init -q -b gh-pages
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
-          git commit -qm "Publish ${APP_ID} ${{ steps.version.outputs.version }}"
+          git add -- .
+          git commit -qm "Publish ${APP_ID} $BUILD_VERSION"
           git push -q --force \
             "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" gh-pages

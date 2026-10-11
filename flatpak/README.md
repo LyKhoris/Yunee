@@ -34,11 +34,16 @@ flatpak run io.github.LyKhoris.Yunee
 
 ## Publishing the update repository
 
-An update is published by pushing a tag (`v*`). `.github/workflows/publish.yml`
-then builds the app, signs the OSTree repo, and publishes it and the
-`.flatpakref` to the `gh-pages` branch (served at
-<https://lykhoris.github.io/Yunee/>). There are no GitHub Releases; the tag is
-just the publish trigger.
+An update is published with an explicit version:
+
+```bash
+gh workflow run publish.yml --ref main -f version=0.1.0-beta.7
+```
+
+`.github/workflows/publish.yml` builds the app, signs the OSTree repo, and
+publishes it and the `.flatpakref` to `gh-pages`, served at
+<https://lykhoris.github.io/Yunee/>. No GitHub Releases or git tags are created.
+Pages hosts the update files; it does not run the desktop app.
 
 GitHub Pages requires a public repository; `LyKhoris/Yunee` is public.
 
@@ -86,9 +91,3 @@ and then update with `flatpak update` or GNOME Software's Updates page.
 The manifest builds offline from the vendored crates in `vendor/` (written by
 `cargo vendor`, gitignored, regenerated in CI). That is what the Flatpak build
 sandbox requires — it has no network.
-
-For **Flathub**, the convention is instead to vendor into a
-`cargo-sources.json` (via
-[flatpak-cargo-generator.py](https://github.com/flathub/flatpak-builder-tools))
-and list it as a source, rather than committing a 500 MB `vendor/` directory.
-That conversion is the remaining step before submitting to Flathub.

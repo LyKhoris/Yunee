@@ -219,7 +219,8 @@ token is never written to the database.
 
 Yunee ships from a **signed Flatpak repository** hosted on GitHub Pages at
 `https://lykhoris.github.io/Yunee/`, built and published by
-`.github/workflows/publish.yml` on every `v*` tag. The source repo is public,
+`.github/workflows/publish.yml` through a manual versioned workflow run.
+The source repo is public,
 because free GitHub Pages requires it.
 
 Install once from the `.flatpakref`, then update normally:
@@ -238,9 +239,11 @@ versions, and `flatpak install` compares commits, not versions (it will silently
 downgrade). This supersedes the 2026-10-08 bundle-only decision in commit
 `615da98`.
 
-**No GitHub Releases — decided 2026-10-09.** A `v*` tag is purely a publish
-trigger: it updates the signed Flatpak repo and nothing else. Yunee publishes no
-GitHub Releases and attaches no bundles. Updates reach users through
+**No GitHub Releases or publish tags — decided 2026-10-10.** Updates use
+`workflow_dispatch` with an explicit version, without creating GitHub Releases
+or git tags. Obsolete version tags and retired web Production deployment
+records are removed. GitHub Pages remains only a host for signed Flatpak files;
+it does not run the application. Updates reach users through
 `flatpak update` / GNOME Software, exactly as above.
 
 **Signing.** The repo is signed with a GPG key: the secret half is the
@@ -248,8 +251,8 @@ GitHub Releases and attaches no bundles. Updates reach users through
 `.flatpakref`. Losing the secret means every user must re-add the remote. It has
 no expiry.
 
-The release workflow stamps the pushed tag into the workspace version
-(`Cargo.toml`) and the AppStream `<release>`, so every release is a distinct
+The publish workflow stamps its version input into the workspace version
+(`Cargo.toml`) and the AppStream `<release>`, so every update is a distinct
 version in both the Settings row (`CARGO_PKG_VERSION`) and `flatpak info`.
 
 **Rejected:** RPM via COPR — public source would be acceptable, but Fedora's Rust
